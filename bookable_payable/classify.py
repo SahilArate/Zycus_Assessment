@@ -47,7 +47,7 @@ def classify_document(pages_b64png: list[str], client: VisionClient) -> dict[str
         system_prompt=SYSTEM_PROMPT,
         user_prompt=USER_PROMPT,
         images_b64_png=pages_b64png,
-        max_tokens=512,
+        max_tokens=1000,
     )
 
     doc_type = str(result.get("doc_type", "other")).strip().lower()
