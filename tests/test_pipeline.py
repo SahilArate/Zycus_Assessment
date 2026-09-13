@@ -45,7 +45,7 @@ def test_retry_succeeds_on_second_attempt_with_feedback():
         WRONG_HEADER, LINE_ITEMS,      # attempt 1: header + line items, wrong
         CORRECT_HEADER, LINE_ITEMS,    # attempt 2 (after feedback): correct
     ])
-    outcome = process_payable_candidate(["page1"], client, MD, company_code="BOLTGROUP", business_unit_code="EE004")
+    outcome = process_payable_candidate(["page1"], client, MD)
     assert outcome["diagnostics"]["resolved"] is True
     assert len(outcome["diagnostics"]["attempts"]) == 2
     assert outcome["payable"]["gross_total"] == "8161.92"
@@ -53,7 +53,7 @@ def test_retry_succeeds_on_second_attempt_with_feedback():
 
 def test_feedback_contains_discrepancy_size_not_a_suggested_fix():
     client = ScriptedVisionClient([WRONG_HEADER, LINE_ITEMS, CORRECT_HEADER, LINE_ITEMS])
-    process_payable_candidate(["page1"], client, MD, company_code="BOLTGROUP", business_unit_code="EE004")
+    process_payable_candidate(["page1"], client, MD)
     # the SECOND header call (index 2) should carry feedback mentioning the gap
     second_header_call_prompt = client.calls[2]["user_prompt"]
     assert "discrepancy" in second_header_call_prompt.lower()
@@ -63,7 +63,7 @@ def test_feedback_contains_discrepancy_size_not_a_suggested_fix():
 def test_exhausted_retries_still_returns_a_grounded_payable_not_none():
     # every attempt returns the same wrong (incomplete) answer — retries never converge
     client = ScriptedVisionClient([WRONG_HEADER, LINE_ITEMS] * 10)  # plenty for max retries + 1
-    outcome = process_payable_candidate(["page1"], client, MD, company_code="BOLTGROUP", business_unit_code="EE004")
+    outcome = process_payable_candidate(["page1"], client, MD)
     assert outcome["diagnostics"]["resolved"] is False
     # still a real, usable payable — not dropped, not None
     assert outcome["payable"]["invoice_number"] == "SI-TEST"
@@ -78,7 +78,7 @@ def test_exhausted_retries_still_returns_a_grounded_payable_not_none():
 
 def test_first_attempt_success_never_calls_extraction_twice():
     client = ScriptedVisionClient([CORRECT_HEADER, LINE_ITEMS])  # only enough for ONE attempt
-    outcome = process_payable_candidate(["page1"], client, MD, company_code="BOLTGROUP", business_unit_code="EE004")
+    outcome = process_payable_candidate(["page1"], client, MD)
     assert outcome["diagnostics"]["resolved"] is True
     assert len(outcome["diagnostics"]["attempts"]) == 1
     assert len(client.calls) == 2  # header + line items, no retry calls made

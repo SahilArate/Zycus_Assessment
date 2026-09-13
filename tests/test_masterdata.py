@@ -69,12 +69,30 @@ def test_po_unknown_number_is_blank():
     assert MD.resolve_po("PO-NOT-IN-MASTER-9999") == ""
 
 
-def test_buyer_resolves_known_company_and_bu():
-    buyer = MD.resolve_buyer("BOLTGROUP", "EE004")
-    assert buyer["location_code"] == "LOC_EE_001"
+def test_buyer_resolves_by_exact_business_unit_name():
+    buyer = MD.resolve_buyer(buyer_name="Bolt Ghana Ltd")
+    assert buyer["business_unit_code"] == "GH001"
+    assert buyer["location_code"] == "LOC_GH_001"
 
 
-def test_buyer_unknown_bu_is_blank():
-    buyer = MD.resolve_buyer("BOLTGROUP", "NOT_REAL")
-    assert buyer["location_code"] == ""
+def test_buyer_resolves_by_address_when_only_one_bu_at_that_location():
+    # no usable name given, but the address alone points to exactly one BU
+    buyer = MD.resolve_buyer(buyer_address="Jalan Tun Razak, 50400 Kuala Lumpur, Malaysia")
+    assert buyer["business_unit_code"] == "MY001"
+
+
+def test_buyer_estonia_ambiguity_stays_honestly_blank():
+    # Bolt Technology OU (EE001) and Bolt Holdings OU (EE004) share the same
+    # Tallinn address — address alone can't tell them apart, and an unrelated
+    # trading name gives no name match either. Guessing between two real
+    # candidates is not a "real match" (Rule 2) — must stay blank.
+    buyer = MD.resolve_buyer(buyer_name="Northwind Operations OU", buyer_address="Vana-Louna 15, 10134 Tallinn, Estonia")
+    assert buyer["business_unit_code"] == ""
     assert buyer["company_code"] == ""
+
+
+def test_buyer_completely_unrelated_entity_is_blank():
+    buyer = MD.resolve_buyer(buyer_name="Random Unrelated Company", buyer_address="123 Nowhere St, Nowhereville")
+    assert buyer["company_code"] == ""
+    assert buyer["business_unit_code"] == ""
+    assert buyer["location_code"] == ""

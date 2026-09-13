@@ -52,9 +52,6 @@ def process_payable_candidate(
     pages_b64png: list[str],
     client: VisionClient,
     master: MasterData,
-    *,
-    company_code: str,
-    business_unit_code: str,
 ) -> dict[str, Any]:
     """Runs extract -> build -> verify, retrying with evidence up to
     settings.max_extraction_retries times. Always returns the most recently
@@ -67,9 +64,7 @@ def process_payable_candidate(
     for attempt in range(settings.max_extraction_retries + 1):
         raw = extract_payable_raw(pages_b64png, client, feedback=feedback)
         country = raw.get("supplier_country", "")
-        payable = build_payable(
-            raw, master, company_code=company_code, business_unit_code=business_unit_code, country=country
-        )
+        payable = build_payable(raw, master, country=country)
         result = verify_payable(payable)
         attempts.append({"attempt": attempt, "verify_result": result, "model_notes": raw.get("notes", "")})
 
@@ -88,9 +83,6 @@ def process_document(
     pdf_path: str | Path,
     client: VisionClient,
     master: MasterData,
-    *,
-    company_code: str,
-    business_unit_code: str,
 ) -> dict[str, Any]:
     """Full pipeline for one PDF. Returns the exact output/X.json shape the
     brief requires (file, payables, declined), plus a "diagnostics" key that
@@ -115,9 +107,7 @@ def process_document(
     # extraction prompt doesn't yet distinguish "candidate #2" from "#1" — a
     # known, documented simplification, revisited only if a real document needs it.
     for _ in range(classification["payable_count"]):
-        outcome = process_payable_candidate(
-            pages, client, master, company_code=company_code, business_unit_code=business_unit_code
-        )
+        outcome = process_payable_candidate(pages, client, master)
         payables.append(outcome["payable"])
         candidate_diagnostics.append(outcome["diagnostics"])
 

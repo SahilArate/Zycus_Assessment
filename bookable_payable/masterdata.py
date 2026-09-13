@@ -18,6 +18,17 @@ from rapidfuzz import fuzz, process
 _NAME_FUZZY_THRESHOLD = 87  # conservative: prefer an honest blank over a bad guess
 
 
+_STOPWORDS = {"office", "street", "road", "ltd", "building", "avenue", "floor", "city", "the", "and"}
+
+
+def _address_keywords(address: str) -> set[str]:
+    """Distinctive words from an address (city/country names mainly) — used to
+    narrow down a business unit by location when the buyer's trading name on the
+    document doesn't match its internal legal entity name."""
+    tokens = re.split(r"[,\s]+", (address or "").lower())
+    return {t.strip(".-") for t in tokens if len(t.strip(".-")) >= 4 and not t.isdigit() and t not in _STOPWORDS}
+
+
 def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
@@ -37,7 +48,8 @@ class MasterData:
     _supplier_names_norm: dict = field(default_factory=dict, repr=False)  # norm_name -> supplier dict
     _po_by_number: dict = field(default_factory=dict, repr=False)
     _payment_term_alias: dict = field(default_factory=dict, repr=False)  # norm_alias -> term_id
-    _location_lookup: dict = field(default_factory=dict, repr=False)  # (company_code, bu_code) -> location_code
+    _business_units: list = field(default_factory=list, repr=False)  # flattened, one dict per BU
+    _bu_names_norm: dict = field(default_factory=dict, repr=False)  # norm_name -> business unit dict
 
     def __post_init__(self):
         for s in self.suppliers:
@@ -61,7 +73,16 @@ class MasterData:
         for company in self.companies:
             for bu in company.get("business_units", []):
                 for loc in bu.get("locations", []):
-                    self._location_lookup[(company["company_code"], bu["business_unit_code"])] = loc
+                    entry = {
+                        "company_code": company["company_code"],
+                        "business_unit_code": bu["business_unit_code"],
+                        "business_unit_name": bu.get("business_unit_name", ""),
+                        "location_code": loc["location_code"],
+                        "address_keywords": _address_keywords(loc.get("invoice_to_address", "")),
+                    }
+                    self._business_units.append(entry)
+                    if entry["business_unit_name"]:
+                        self._bu_names_norm[_norm(entry["business_unit_name"])] = entry
 
     @classmethod
     def load(cls, master_data_dir: str | Path) -> "MasterData":
@@ -129,12 +150,37 @@ class MasterData:
         hit = self._po_by_number.get(_norm(po_number))
         return hit["po_id"] if hit else ""
 
-    def resolve_buyer(self, company_code: str, business_unit_code: str) -> dict:
-        """Given the tenant's known company/business-unit (fixed per run, not read
-        off the document), return {"company_code","business_unit_code","location_code"}."""
-        loc = self._location_lookup.get((company_code, business_unit_code))
-        return {
-            "company_code": company_code if loc else "",
-            "business_unit_code": business_unit_code if loc else "",
-            "location_code": loc["location_code"] if loc else "",
-        }
+    def resolve_buyer(self, *, buyer_name: str = "", buyer_address: str = "") -> dict:
+        """Matches the buyer PRINTED ON THE DOCUMENT against our own business
+        units — chart_of_books.json's own comment says this varies per document,
+        it is not fixed for a run. Priority:
+          1. Exact/fuzzy match on the business unit's legal name.
+          2. Otherwise, address keywords (city/country) — but ONLY if they point
+             to exactly one business unit. Estonia has two entities at the same
+             address (Bolt Technology OU vs Bolt Holdings OU); address alone
+             can't tell them apart, so an ambiguous address match stays blank
+             rather than guessing between them (Rule 2: no match is legitimate).
+        Returns {"company_code","business_unit_code","location_code"}, all ""
+        if nothing resolves confidently."""
+        blank = {"company_code": "", "business_unit_code": "", "location_code": ""}
+
+        if buyer_name:
+            norm = _norm(buyer_name)
+            if hit := self._bu_names_norm.get(norm):
+                return {k: hit[k] for k in ("company_code", "business_unit_code", "location_code")}
+            candidates = list(self._bu_names_norm.keys())
+            if candidates:
+                best = process.extractOne(norm, candidates, scorer=fuzz.WRatio)
+                if best and best[1] >= _NAME_FUZZY_THRESHOLD:
+                    hit = self._bu_names_norm[best[0]]
+                    return {k: hit[k] for k in ("company_code", "business_unit_code", "location_code")}
+
+        if buyer_address:
+            addr_keywords = _address_keywords(buyer_address)
+            matches = [bu for bu in self._business_units if addr_keywords & bu["address_keywords"]]
+            if len(matches) == 1:
+                hit = matches[0]
+                return {k: hit[k] for k in ("company_code", "business_unit_code", "location_code")}
+            # 0 or >1 matches (ambiguous, e.g. two entities at the same city) — stay blank
+
+        return blank

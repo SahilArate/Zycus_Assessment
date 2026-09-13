@@ -98,7 +98,7 @@ def _map_line(li: dict, master: MasterData, country: str = "") -> dict:
     }
 
 
-def build_payable(raw: dict, master: MasterData, *, company_code: str, business_unit_code: str, country: str = "") -> dict:
+def build_payable(raw: dict, master: MasterData, *, country: str = "") -> dict:
     """raw: the vision-extraction output for one payable candidate (see extraction
     prompt for its shape). country: ISO-ish country hint for tax-master resolution,
     e.g. derived from the supplier's address/VAT prefix — plain best-effort, and
@@ -107,8 +107,10 @@ def build_payable(raw: dict, master: MasterData, *, company_code: str, business_
         name=raw.get("supplier_name", ""),
         vat_id=raw.get("supplier_vat_id", ""),
     )
-    buyer = master.resolve_buyer(company_code, business_unit_code)
-
+    buyer = master.resolve_buyer(
+        buyer_name=raw.get("buyer_name", ""),
+        buyer_address=raw.get("buyer_address", ""),
+    )
     return {
         "invoice_number": raw.get("invoice_number", ""),
         "invoice_date": raw.get("invoice_date", ""),

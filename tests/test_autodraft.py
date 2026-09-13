@@ -37,31 +37,31 @@ HLD01_RAW = {
 
 
 def test_hld01_builds_and_matches_oracle():
-    payable = build_payable(HLD01_RAW, MD, company_code="BOLTGROUP", business_unit_code="EE004")
+    payable = build_payable(HLD01_RAW, MD)
     result = verify_payable(payable)
     assert result["matches"], result
     assert result["booked_gross"] == 8161.92
 
 
 def test_hld01_extra_charges_captured_as_header_charge():
-    payable = build_payable(HLD01_RAW, MD, company_code="BOLTGROUP", business_unit_code="EE004")
+    payable = build_payable(HLD01_RAW, MD)
     assert payable["extra_charges"] == "648.00"
 
 
 def test_hld01_withholding_tax_kept_negative():
-    payable = build_payable(HLD01_RAW, MD, company_code="BOLTGROUP", business_unit_code="EE004")
+    payable = build_payable(HLD01_RAW, MD)
     wht = [t for t in payable["taxes"] if t["tax_type"] == "WITHHOLDING"]
     assert len(wht) == 1
     assert wht[0]["tax_amount"] == "-235.44"
 
 
 def test_hld01_unknown_supplier_is_honest_blank():
-    payable = build_payable(HLD01_RAW, MD, company_code="BOLTGROUP", business_unit_code="EE004")
+    payable = build_payable(HLD01_RAW, MD)
     assert payable["supplier"]["supplier_id"] == ""  # not in our small master list — must not guess
 
 
 def test_mismatch_is_detected_not_silently_passed():
-    payable = build_payable(HLD01_RAW, MD, company_code="BOLTGROUP", business_unit_code="EE004")
+    payable = build_payable(HLD01_RAW, MD)
     payable["gross_total"] = "9999.99"  # deliberately wrong
     result = verify_payable(payable)
     assert not result["matches"]
@@ -107,7 +107,7 @@ HLD01_REAL_GROQ_OUTPUT = {
 
 
 def test_real_groq_output_with_commas_still_matches_oracle():
-    payable = build_payable(HLD01_REAL_GROQ_OUTPUT, MD, company_code="BOLTGROUP", business_unit_code="EE004")
+    payable = build_payable(HLD01_REAL_GROQ_OUTPUT, MD)
     result = verify_payable(payable)
     assert result["matches"], result
     assert result["booked_gross"] == 8161.92
@@ -116,6 +116,6 @@ def test_real_groq_output_with_commas_still_matches_oracle():
 def test_real_groq_output_line_total_is_not_silently_zeroed():
     # the exact failure mode this fix prevents: a comma-formatted line total
     # must not collapse to 0 once it reaches the payable
-    payable = build_payable(HLD01_REAL_GROQ_OUTPUT, MD, company_code="BOLTGROUP", business_unit_code="EE004")
+    payable = build_payable(HLD01_REAL_GROQ_OUTPUT, MD)
     assert payable["line_items"][0]["total"] == "7200.00"
     assert payable["gross_total"] == "8161.92"

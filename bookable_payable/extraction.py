@@ -40,6 +40,7 @@ HEADER_USER_PROMPT = """Extract this document's HEADER fields (not line items) a
   "supplier_address": "",
   "supplier_country": "2-letter ISO guess from the address/VAT prefix, or empty",
   "buyer_name": "",
+  "buyer_address": "",
   "payment_term_text": "exact wording as printed, e.g. 'Net 10' or '90 days net'",
   "po_number": "",
   "header_charges": [
@@ -127,6 +128,7 @@ def extract_header(pages_b64png: list[str], client: VisionClient, *, feedback: s
         "supplier_address": _str(result, "supplier_address"),
         "supplier_country": _str(result, "supplier_country"),
         "buyer_name": _str(result, "buyer_name"),
+        "buyer_address": _str(result, "buyer_address"),
         "payment_term_text": _str(result, "payment_term_text"),
         "po_number": _str(result, "po_number"),
         "header_charges": _list(result, "header_charges"),
