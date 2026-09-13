@@ -2,6 +2,14 @@
 payable that matches AUTODRAFT_SCHEMA.md exactly. This is pure data-shaping and
 master-data resolution — no AI calls happen here, which is exactly why it's fully
 testable without any API key.
+
+Every numeric-looking field passes through _clean_num() before it enters the
+payable. This matters more than it looks: erp.py's own number parser strips
+currency symbols and "%" but NOT thousands-separator commas — feeding it
+"7,200.00" would silently become 0.0 (float() fails, caught, defaults to zero),
+not an error. Real Groq/vision output does print numbers with commas, so this
+is a genuine bug class, not a hypothetical one, and it belongs here: this file
+is the one boundary between "text as printed" and "numbers a calculator can use."
 """
 from __future__ import annotations
 
@@ -10,6 +18,20 @@ from typing import Any
 from .masterdata import MasterData
 
 _WITHHOLDING_HINTS = ("withhold", "wht", "retention")
+
+
+def _clean_num(v: Any) -> str:
+    """Strip thousands-separator commas and stray whitespace from a numeric-ish
+    string. Returns "" for empty input. Does NOT try to validate the result is a
+    real number — erp.py's own parser already defaults unparseable input to 0.0,
+    and we want that failure to be visible (a genuinely garbled value), not
+    masked here. This function only removes formatting, never invents data."""
+    if v is None:
+        return ""
+    s = str(v).strip()
+    if s == "":
+        return ""
+    return s.replace(",", "")
 
 
 def _fmt(x: float) -> str:
@@ -24,7 +46,7 @@ def _sum_charge_amounts(charges: list[dict]) -> str:
     total = 0.0
     for c in charges:
         try:
-            total += float(str(c.get("amount", "0") or "0").replace(",", ""))
+            total += float(_clean_num(c.get("amount", "0")) or "0")
         except ValueError:
             continue
     return _fmt(total)
@@ -33,7 +55,7 @@ def _sum_charge_amounts(charges: list[dict]) -> str:
 def _guess_tax_type(label: str, amount_str: str) -> str:
     label_l = (label or "").lower()
     try:
-        amt = float(str(amount_str or "0").replace(",", ""))
+        amt = float(_clean_num(amount_str) or "0")
     except ValueError:
         amt = 0.0
     if amt < 0 or any(h in label_l for h in _WITHHOLDING_HINTS):
@@ -47,8 +69,8 @@ def _guess_tax_type(label: str, amount_str: str) -> str:
 
 def _map_tax(t: dict, master: MasterData, country: str = "") -> dict:
     label = t.get("label", "")
-    rate = str(t.get("rate_percent", "") or "").replace("%", "").strip()
-    amount = t.get("amount", "")
+    rate = _clean_num(str(t.get("rate_percent", "") or "").replace("%", "").strip())
+    amount = _clean_num(t.get("amount", ""))
     tax_type = _guess_tax_type(label, amount)
     return {
         "tax_type": tax_type,
@@ -65,13 +87,13 @@ def _map_line(li: dict, master: MasterData, country: str = "") -> dict:
         "description": li.get("description", ""),
         "item_type": li.get("item_type", "GOODS"),
         "uom": li.get("uom", ""),
-        "quantity": li.get("quantity", ""),
-        "unit_price": li.get("unit_price", ""),
-        "total": li.get("line_total", li.get("total", "")),
-        "discount": li.get("discount", ""),
-        "discount_percentage": li.get("discount_percentage", ""),
-        "tax_rate": li.get("tax_rate", "") if not taxes else "",
-        "tax_amount": li.get("tax_amount", "") if not taxes else "",
+        "quantity": _clean_num(li.get("quantity", "")),
+        "unit_price": _clean_num(li.get("unit_price", "")),
+        "total": _clean_num(li.get("line_total", li.get("total", ""))),
+        "discount": _clean_num(li.get("discount", "")),
+        "discount_percentage": _clean_num(li.get("discount_percentage", "")),
+        "tax_rate": _clean_num(li.get("tax_rate", "")) if not taxes else "",
+        "tax_amount": _clean_num(li.get("tax_amount", "")) if not taxes else "",
         "taxes": [_map_tax(t, master, country) for t in taxes],
     }
 
@@ -103,14 +125,14 @@ def build_payable(raw: dict, master: MasterData, *, company_code: str, business_
         "payment_term_id": master.resolve_payment_term(raw.get("payment_term_text", "")),
         "po_number": raw.get("po_number", ""),
         "po_id": master.resolve_po(raw.get("po_number", "")),
-        "gross_total": raw.get("declared_grand_total", ""),
-        "subtotal": raw.get("declared_subtotal", ""),
-        "total_tax_amount": raw.get("declared_total_tax", ""),
-        "discount_amount": raw.get("header_discount_amount", ""),
-        "freight_charges": raw.get("freight_charges", ""),
-        "insurance_charges": raw.get("insurance_charges", ""),
+        "gross_total": _clean_num(raw.get("declared_grand_total", "")),
+        "subtotal": _clean_num(raw.get("declared_subtotal", "")),
+        "total_tax_amount": _clean_num(raw.get("declared_total_tax", "")),
+        "discount_amount": _clean_num(raw.get("header_discount_amount", "")),
+        "freight_charges": _clean_num(raw.get("freight_charges", "")),
+        "insurance_charges": _clean_num(raw.get("insurance_charges", "")),
         "extra_charges": _sum_charge_amounts(raw.get("header_charges", [])),
-        "excise_duties": raw.get("excise_duties", ""),
+        "excise_duties": _clean_num(raw.get("excise_duties", "")),
         "taxes": [_map_tax(t, master, country) for t in raw.get("header_taxes", [])],
         "line_items": [_map_line(li, master, country) for li in raw.get("line_items", [])],
     }

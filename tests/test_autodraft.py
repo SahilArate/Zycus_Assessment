@@ -66,3 +66,56 @@ def test_mismatch_is_detected_not_silently_passed():
     result = verify_payable(payable)
     assert not result["matches"]
     assert result["diff"] != 0
+
+
+# The actual raw output Groq/qwen returned for HLD-01.pdf in a real run — numbers
+# printed with thousands-separator commas, exactly as a real vision model does.
+# This is the regression test for a real bug: erp.py's own number parser does not
+# strip commas, so "7,200.00" would silently become 0.0 without _clean_num().
+HLD01_REAL_GROQ_OUTPUT = {
+    "doc_type": "invoice",
+    "invoice_number": "SI6675/02/467",
+    "invoice_date": "2026-05-05",
+    "due_date": "",
+    "currency": "THB",
+    "supplier_name": "บริษัท ซิงค์ ครีเอชั่น จำกัด",
+    "supplier_vat_id": "0 1055 56100 87 9",
+    "supplier_address": "เลขที่ 799/124 หมู่ที่ 3 ตำบลเพชรเกษม แขวงประเวศ เขตประเวศ กทม 10250",
+    "supplier_country": "TH",
+    "buyer_name": "Northwind SUPPORT SERVICES (THAILAND) LIMITED",
+    "payment_term_text": "",
+    "po_number": "",
+    "header_charges": [
+        {"label": "MANAGEMENT FEE 9%", "basis": "9% of net subtotal", "amount": "648.00"}
+    ],
+    "header_taxes": [
+        {"label": "Vat 7%", "rate_percent": "7%", "amount": "549.36", "base_note": "on total including agency fee (7,848.00)"},
+        {"label": "WITHHOLDING TAX", "rate_percent": "3%", "amount": "-235.44", "base_note": "3% of gross total including VAT"},
+    ],
+    "declared_subtotal": "7,200.00",  # <-- comma
+    "declared_total_tax": "",
+    "declared_grand_total": "8,161.92",  # <-- comma
+    "notes": "Date converted from Thai Buddhist Era 2569.",
+    "line_items": [
+        {
+            "description": "Staff 2 Units X 6 Days", "item_type": "SERVICE", "uom": "Units",
+            "quantity": "12", "unit_price": "600.00", "line_total": "7,200.00",  # <-- comma
+            "discount": "", "discount_percentage": "", "tax_rate": "", "tax_amount": "", "taxes": [],
+        }
+    ],
+}
+
+
+def test_real_groq_output_with_commas_still_matches_oracle():
+    payable = build_payable(HLD01_REAL_GROQ_OUTPUT, MD, company_code="BOLTGROUP", business_unit_code="EE004")
+    result = verify_payable(payable)
+    assert result["matches"], result
+    assert result["booked_gross"] == 8161.92
+
+
+def test_real_groq_output_line_total_is_not_silently_zeroed():
+    # the exact failure mode this fix prevents: a comma-formatted line total
+    # must not collapse to 0 once it reaches the payable
+    payable = build_payable(HLD01_REAL_GROQ_OUTPUT, MD, company_code="BOLTGROUP", business_unit_code="EE004")
+    assert payable["line_items"][0]["total"] == "7200.00"
+    assert payable["gross_total"] == "8161.92"
