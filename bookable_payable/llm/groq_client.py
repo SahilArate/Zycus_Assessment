@@ -69,6 +69,7 @@ class GroqVisionClient(VisionClient):
             except RateLimitError:
                 if attempt == _MAX_RATE_LIMIT_RETRIES:
                     raise
+                print(f"      (rate limited, waiting {_RATE_LIMIT_WAIT_SECONDS}s...)", flush=True)
                 time.sleep(_RATE_LIMIT_WAIT_SECONDS)
 
         text = resp.choices[0].message.content or ""

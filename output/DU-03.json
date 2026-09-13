@@ -1,0 +1,10 @@
+{
+  "file": "DU-03.pdf",
+  "payables": [],
+  "declined": [
+    {
+      "doc_type": "unknown",
+      "reason": "processing error, not a determination this isn't a payable: Error code: 400 - {'error': {'message': 'Too many images provided.  This model supports up to 3 images', 'type': 'invalid_request_error'}}"
+    }
+  ]
+}

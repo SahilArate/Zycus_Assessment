@@ -18,7 +18,7 @@ from .autodraft import build_payable
 from .classify import classify_document
 from .config import settings
 from .extraction import extract_header, extract_line_items
-from .ingestion import render_pdf_pages
+from .ingestion import render_pdf_pages, select_pages_for_model
 from .llm.base import VisionClient
 from .masterdata import MasterData
 from .verify import verify_payable
@@ -62,11 +62,13 @@ def process_payable_candidate(
     payable: dict = {}
 
     for attempt in range(settings.max_extraction_retries + 1):
+        print(f"    extraction attempt {attempt + 1}/{settings.max_extraction_retries + 1} (may pause ~20s if rate limited)...", flush=True)
         raw = extract_payable_raw(pages_b64png, client, feedback=feedback)
         country = raw.get("supplier_country", "")
         payable = build_payable(raw, master, country=country)
         result = verify_payable(payable)
         attempts.append({"attempt": attempt, "verify_result": result, "model_notes": raw.get("notes", "")})
+        print(f"    -> booked {result['booked_gross']} vs declared {result['declared_gross']} ({'MATCH' if result['matches'] else 'mismatch'})")
 
         if result["matches"]:
             return {"payable": payable, "diagnostics": {"attempts": attempts, "resolved": True}}
@@ -90,7 +92,10 @@ def process_document(
     of the graded contract."""
     pdf_path = Path(pdf_path)
     pages = render_pdf_pages(pdf_path)
+    pages = select_pages_for_model(pages)  # cap once, before ANY model call sees them
+    print("  classifying...", end=" ", flush=True)
     classification = classify_document(pages, client)
+    print(f"-> {classification['doc_type']}, payable={classification['is_payable']}")
 
     if not classification["is_payable"]:
         return {
