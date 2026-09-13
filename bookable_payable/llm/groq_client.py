@@ -66,7 +66,13 @@ class GroqVisionClient(VisionClient):
                     ],
                 )
                 break
-            except RateLimitError:
+            except RateLimitError as e:
+                if "tokens per day" in str(e).lower() or "TPD" in str(e):
+                    # A daily cap can't possibly reset in 20 seconds — retrying
+                    # here would just waste time before failing anyway. Fail
+                    # immediately so main.py logs it and moves to the next
+                    # document rather than stalling the whole run.
+                    raise
                 if attempt == _MAX_RATE_LIMIT_RETRIES:
                     raise
                 print(f"      (rate limited, waiting {_RATE_LIMIT_WAIT_SECONDS}s...)", flush=True)

@@ -115,7 +115,7 @@ def extract_header(pages_b64png: list[str], client: VisionClient, *, feedback: s
         system_prompt=HEADER_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         images_b64_png=pages_b64png,
-        max_tokens=700,
+        max_tokens=850,
     )
     return {
         "doc_type": _str(result, "doc_type", "invoice"),
