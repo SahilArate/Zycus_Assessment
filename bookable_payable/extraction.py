@@ -102,12 +102,17 @@ def _str(result: dict, key: str, default: str = "") -> str:
     v = result.get(key, default)
     return v if isinstance(v, str) else default
 
-
-def extract_header(pages_b64png: list[str], client: VisionClient) -> dict[str, Any]:
-    """One small, fixed-size call for everything except line items."""
+def extract_header(pages_b64png: list[str], client: VisionClient, *, feedback: str = "") -> dict[str, Any]:
+    """One small, fixed-size call for everything except line items.
+    feedback: if this is a retry after a failed erp.py check, a short note
+    describing the discrepancy (size only, never a suggested fix — see
+    pipeline._build_feedback) to prompt a genuine re-read, not a forced match."""
+    user_prompt = HEADER_USER_PROMPT
+    if feedback:
+        user_prompt += f"\n\nIMPORTANT — this is a re-read after a discrepancy was found: {feedback}"
     result = client.extract_json(
         system_prompt=HEADER_SYSTEM_PROMPT,
-        user_prompt=HEADER_USER_PROMPT,
+        user_prompt=user_prompt,
         images_b64_png=pages_b64png,
         max_tokens=700,
     )
@@ -132,18 +137,19 @@ def extract_header(pages_b64png: list[str], client: VisionClient) -> dict[str, A
         "notes": _str(result, "notes"),
     }
 
-
-def extract_line_items(pages_b64png: list[str], client: VisionClient, *, max_tokens: int = 900) -> list[dict]:
+def extract_line_items(pages_b64png: list[str], client: VisionClient, *, max_tokens: int = 900, feedback: str = "") -> list[dict]:
     """A separate call, since this is the part whose size scales with the
     document (this kit has documents with up to 35 lines)."""
+    user_prompt = LINE_ITEMS_USER_PROMPT
+    if feedback:
+        user_prompt += f"\n\nIMPORTANT — this is a re-read after a discrepancy was found: {feedback}"
     result = client.extract_json(
         system_prompt=LINE_ITEMS_SYSTEM_PROMPT,
-        user_prompt=LINE_ITEMS_USER_PROMPT,
+        user_prompt=user_prompt,
         images_b64_png=pages_b64png,
         max_tokens=max_tokens,
     )
     return _list(result, "line_items")
-
 
 def extract_payable(pages_b64png: list[str], client: VisionClient) -> dict[str, Any]:
     """Convenience wrapper: runs both calls and merges them into the same shape
