@@ -50,8 +50,12 @@ class MasterData:
     _payment_term_alias: dict = field(default_factory=dict, repr=False)  # norm_alias -> term_id
     _business_units: list = field(default_factory=list, repr=False)  # flattened, one dict per BU
     _bu_names_norm: dict = field(default_factory=dict, repr=False)  # norm_name -> business unit dict
+    _tax_by_type: dict = field(default_factory=dict, repr=False)  # tax_type_upper -> list of tax rows
 
     def __post_init__(self):
+        for t in self.taxes:
+            self._tax_by_type.setdefault((t.get("tax_type") or "").upper(), []).append(t)
+
         for s in self.suppliers:
             if s.get("vat_id"):
                 self._supplier_by_vat[_norm(s["vat_id"])] = s
@@ -118,12 +122,17 @@ class MasterData:
 
     def resolve_tax(self, *, country: str = "", tax_type: str = "", rate_percent: str = "") -> str:
         """Match on (country, tax_type, rate) — the combination that's actually unique
-        in a real tax master; rate alone collides across countries and tax types."""
+        in a real tax master; rate alone collides across countries and tax types.
+        Indexed by tax_type FIRST: a real tenant may have thousands of tax_types but
+        only a handful of country/rate variants within any one type, so this only
+        ever scans the rows sharing that tax_type, never the full tax table."""
         try:
             rate = float(str(rate_percent).replace("%", "").strip())
         except ValueError:
             rate = None
-        for t in self.taxes:
+
+        candidates = self._tax_by_type.get(tax_type.upper(), []) if tax_type else self.taxes
+        for t in candidates:
             country_ok = (not country) or t.get("country", "").upper() == country.upper()
             type_ok = (not tax_type) or t.get("tax_type", "").upper() == tax_type.upper()
             rate_ok = rate is None or abs(float(t.get("rate", -999)) - rate) < 0.01

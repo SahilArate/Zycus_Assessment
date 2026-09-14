@@ -48,6 +48,25 @@ def test_tax_no_match_when_rate_absent_from_master():
     assert code == ""
 
 
+def test_tax_index_is_bucketed_by_type_not_a_flat_list():
+    # proves this is a real index, not just a renamed full scan: every row in the
+    # VAT bucket must actually be a VAT row, and the bucket must exist and be non-empty
+    assert "VAT" in MD._tax_by_type
+    assert MD._tax_by_type["VAT"]
+    assert all(t.get("tax_type", "").upper() == "VAT" for t in MD._tax_by_type["VAT"])
+
+
+def test_tax_unknown_type_is_honest_blank_not_an_index_crash():
+    code = MD.resolve_tax(country="DE", tax_type="NOT_A_REAL_TAX_TYPE", rate_percent="7")
+    assert code == ""
+
+
+def test_tax_resolves_without_country_using_type_and_rate_only():
+    # country="" must still work as a wildcard through the new index path
+    code = MD.resolve_tax(tax_type="VAT", rate_percent="7")
+    assert code == "DE_070_VAT"
+
+
 def test_payment_term_alias_net_10():
     assert MD.resolve_payment_term("Net 10") == "Net_10"
 
