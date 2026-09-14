@@ -18,7 +18,8 @@ document it is, and whether the buyer owes money because of it. You do not
 extract any line items or numbers here — only classify. Respond with JSON only,
 no prose, no markdown fences."""
 
-USER_PROMPT = """Look at every page of this document and answer:
+USER_PROMPT = """Look at the page images provided (a sample of this document's
+pages, not necessarily every page it contains) and answer:
 
 {
   "doc_type": "invoice | credit_memo | delivery_note | statement | purchase_order | remittance_advice | other",
