@@ -1,13 +1,17 @@
 """Wires every piece together for ONE document: classify, then (for each payable
 candidate) extract -> build -> verify -> retry-with-evidence on mismatch.
 
-Important design decision, straight from the brief's own wording: `declined[]`
-is only for documents that are not payables at all. A document that genuinely
-IS an invoice but whose numbers don't reconcile with erp.py even after retries
-is still emitted as a payable — built from real, grounded values only — never
-silently dropped and never faked into matching. The retry loop's job is to
-correct genuine extraction mistakes (a misread digit, a tax on the wrong base),
-never to force a number until the math works.
+Two important design decisions, both revised after review:
+
+1. `declined[]` covers two cases: a document that isn't a payable at all, AND a
+   document that IS one but could not be reconciled with the ERP validator
+   after retries. We do not submit a figure we know doesn't check out — per
+   the brief's own framing, recognizing a document can't be solved and saying
+   so honestly is worth more than code that pretends otherwise.
+
+2. The retry loop's job is to correct genuine extraction mistakes (a misread
+   digit, a tax on the wrong base), never to force a number until the math
+   works — it's told the SIZE of a discrepancy, never a suggested fix.
 """
 from __future__ import annotations
 
@@ -40,11 +44,34 @@ def _build_feedback(result: dict) -> str:
     )
 
 
-def extract_payable_raw(pages_b64png: list[str], client: VisionClient, *, feedback: str = "") -> dict[str, Any]:
+def _build_candidate_hint(candidate_index: int, candidate_count: int) -> str:
+    """Only non-empty when classification found MORE THAN ONE payable in a
+    single file (rare — genuinely separate invoices stapled together). Without
+    this, extracting "candidate 2 of 2" with no distinguishing instruction
+    would just re-read the same invoice as candidate 1 — a real bug, not a
+    hypothetical one."""
+    if candidate_count <= 1:
+        return ""
+    return (
+        f"IMPORTANT: this document contains {candidate_count} separate, distinct "
+        f"payables (e.g. multiple invoices stapled together), not one. You are "
+        f"extracting candidate {candidate_index + 1} of {candidate_count}. Identify "
+        f"the distinct invoice numbers/totals present and extract ONLY the "
+        f"{'first' if candidate_index == 0 else f'{candidate_index + 1}(th)'} distinct "
+        f"one you find, by position — do not repeat a payable you'd already extract "
+        f"for a different candidate index."
+    )
+
+
+def extract_payable_raw(
+    pages_b64png: list[str], client: VisionClient, *, feedback: str = "", candidate_hint: str = ""
+) -> dict[str, Any]:
     """Like extraction.extract_payable, but can carry feedback from a failed
-    verification into both the header and line-item re-reads."""
-    header = extract_header(pages_b64png, client, feedback=feedback)
-    header["line_items"] = extract_line_items(pages_b64png, client, feedback=feedback)
+    verification, and/or a candidate_hint when a file holds more than one
+    payable, into both the header and line-item re-reads."""
+    combined = " ".join(x for x in (candidate_hint, feedback) if x)
+    header = extract_header(pages_b64png, client, feedback=combined)
+    header["line_items"] = extract_line_items(pages_b64png, client, feedback=combined)
     return header
 
 
@@ -52,18 +79,23 @@ def process_payable_candidate(
     pages_b64png: list[str],
     client: VisionClient,
     master: MasterData,
+    *,
+    candidate_index: int = 0,
+    candidate_count: int = 1,
 ) -> dict[str, Any]:
     """Runs extract -> build -> verify, retrying with evidence up to
-    settings.max_extraction_retries times. Always returns the most recently
-    built payable — resolved or not — plus diagnostics for our own review
-    (diagnostics are NOT part of the submitted schema, output.py drops them)."""
+    settings.max_extraction_retries times. Returns the most recently built
+    payable plus diagnostics["resolved"] — the caller (process_document)
+    decides whether an unresolved result becomes a declined entry.
+    diagnostics are NOT part of the submitted schema; main.py strips them."""
+    candidate_hint = _build_candidate_hint(candidate_index, candidate_count)
     feedback = ""
     attempts: list[dict] = []
     payable: dict = {}
 
     for attempt in range(settings.max_extraction_retries + 1):
         print(f"    extraction attempt {attempt + 1}/{settings.max_extraction_retries + 1} (may pause ~20s if rate limited)...", flush=True)
-        raw = extract_payable_raw(pages_b64png, client, feedback=feedback)
+        raw = extract_payable_raw(pages_b64png, client, feedback=feedback, candidate_hint=candidate_hint)
         country = raw.get("supplier_country", "")
         payable = build_payable(raw, master, country=country)
         result = verify_payable(payable)
@@ -75,9 +107,8 @@ def process_payable_candidate(
 
         feedback = _build_feedback(result)
 
-    # Retries exhausted without reconciling — still emit the payable. Every
-    # value in it came from the document; it just didn't foot to the cent.
-    # That's an honest, documented shortfall, not a fabricated pass.
+    # Retries exhausted without reconciling. The caller declines this
+    # candidate rather than submitting it — see module docstring.
     return {"payable": payable, "diagnostics": {"attempts": attempts, "resolved": False}}
 
 
@@ -88,8 +119,8 @@ def process_document(
 ) -> dict[str, Any]:
     """Full pipeline for one PDF. Returns the exact output/X.json shape the
     brief requires (file, payables, declined), plus a "diagnostics" key that
-    our own output-writing step strips before saving — useful for us, not part
-    of the graded contract."""
+    main.py strips before saving — useful for us, not part of the graded
+    contract."""
     pdf_path = Path(pdf_path)
     pages = render_pdf_pages(pdf_path)
     pages = select_pages_for_model(pages)  # cap once, before ANY model call sees them
@@ -106,19 +137,30 @@ def process_document(
         }
 
     payables: list[dict] = []
+    declined: list[dict] = []
     candidate_diagnostics: list[dict] = []
-    # NOTE: payable_count > 1 is rare (the classification prompt only expects it
-    # for genuinely multiple distinct invoices stapled in one file) and our
-    # extraction prompt doesn't yet distinguish "candidate #2" from "#1" — a
-    # known, documented simplification, revisited only if a real document needs it.
-    for _ in range(classification["payable_count"]):
-        outcome = process_payable_candidate(pages, client, master)
-        payables.append(outcome["payable"])
+    for candidate_index in range(classification["payable_count"]):
+        outcome = process_payable_candidate(
+            pages, client, master, candidate_index=candidate_index, candidate_count=classification["payable_count"]
+        )
         candidate_diagnostics.append(outcome["diagnostics"])
+        if outcome["diagnostics"]["resolved"]:
+            payables.append(outcome["payable"])
+        else:
+            last_result = outcome["diagnostics"]["attempts"][-1]["verify_result"]
+            declined.append({
+                "doc_type": classification["doc_type"],
+                "reason": (
+                    f"Extracted as a likely {classification['doc_type']} but could not reconcile with the "
+                    f"ERP validator after {len(outcome['diagnostics']['attempts'])} attempt(s) "
+                    f"(booked {last_result['booked_gross']} vs declared {last_result['declared_gross']}, "
+                    f"diff {last_result['diff']}). Declining rather than submitting an unverified figure."
+                ),
+            })
 
     return {
         "file": pdf_path.name,
         "payables": payables,
-        "declined": [],
+        "declined": declined,
         "diagnostics": {"classification": classification, "candidates": candidate_diagnostics},
     }

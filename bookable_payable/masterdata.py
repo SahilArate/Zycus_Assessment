@@ -87,11 +87,11 @@ class MasterData:
     @classmethod
     def load(cls, master_data_dir: str | Path) -> "MasterData":
         d = Path(master_data_dir)
-        suppliers = json.loads((d / "suppliers.json").read_text())["suppliers"]
-        companies = json.loads((d / "chart_of_books.json").read_text())["companies"]
-        taxes = json.loads((d / "tax_master.json").read_text())["taxes"]
-        payment_terms = json.loads((d / "payment_terms.json").read_text())["payment_terms"]
-        purchase_orders = json.loads((d / "po_master.json").read_text())["purchase_orders"]
+        suppliers = json.loads((d / "suppliers.json").read_text(encoding="utf-8"))["suppliers"]
+        companies = json.loads((d / "chart_of_books.json").read_text(encoding="utf-8"))["companies"]
+        taxes = json.loads((d / "tax_master.json").read_text(encoding="utf-8"))["taxes"]
+        payment_terms = json.loads((d / "payment_terms.json").read_text(encoding="utf-8"))["payment_terms"]
+        purchase_orders = json.loads((d / "po_master.json").read_text(encoding="utf-8"))["purchase_orders"]
         return cls(suppliers, companies, taxes, payment_terms, purchase_orders)
 
     # ---- resolvers -------------------------------------------------------

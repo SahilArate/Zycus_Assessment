@@ -48,7 +48,7 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    pdf_paths = sorted(documents_dir.glob("*.pdf"))
+    pdf_paths = sorted(p for p in documents_dir.iterdir() if p.suffix.lower() == ".pdf")
     if not pdf_paths:
         print(f"No PDFs found in {documents_dir}", file=sys.stderr)
         sys.exit(1)
@@ -75,7 +75,7 @@ def main() -> None:
             output = _strip_to_submission_shape(result)
             status = f"{len(output['payables'])} payable(s), {len(output['declined'])} declined"
             if unresolved_here:
-                status += f" (⚠ {unresolved_here} did not reconcile with erp.py)"
+                status += f" (of which {unresolved_here} declined due to non-reconciliation with the ERP validator)"
             print(status)
         except Exception as e:  # noqa: BLE001 — deliberately broad: one bad file must not kill the run
             print(f"ERROR: {e}")
@@ -87,7 +87,7 @@ def main() -> None:
         total_declined += len(output["declined"])
 
         out_path = output_dir / f"{pdf_path.stem}.json"
-        out_path.write_text(json.dumps(output, indent=2, ensure_ascii=False))
+        out_path.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
 
     elapsed = time.time() - started_at
     print()
@@ -95,7 +95,7 @@ def main() -> None:
     print(f"Processed {len(pdf_paths)} documents in {elapsed:.0f}s")
     print(f"  Payables emitted:  {total_payables}")
     print(f"  Declined:          {total_declined}")
-    print(f"  Did not reconcile with erp.py (still emitted honestly): {total_unresolved}")
+    print(f"  (of which declined due to non-reconciliation, not because they weren't payables: {total_unresolved})")
     print(f"  Hard processing errors: {total_errors}")
     print(f"Output written to: {output_dir}/")
 
