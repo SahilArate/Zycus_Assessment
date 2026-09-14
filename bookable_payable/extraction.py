@@ -65,7 +65,11 @@ HEADER_USER_PROMPT = """Extract this document's HEADER fields (not line items) a
 
 Rules: every value must come from the page, "" if absent, never a guess. A
 withholding tax reduces what's owed — its amount is NEGATIVE. Credit memos:
-extract magnitudes as POSITIVE (invoice_type distinguishes it, not sign)."""
+extract magnitudes as POSITIVE (invoice_type distinguishes it, not sign).
+Every NUMBER you output must be dot-decimal (e.g. 1796.54) regardless of how
+it's punctuated on the page — if the document prints 1.796,54 or 1 796,54,
+you are transcribing its VALUE as 1796.54, not its punctuation style. Never
+add a thousands separator of your own."""
 
 
 LINE_ITEMS_SYSTEM_PROMPT = """You are an expert accounts-payable clerk. You already
@@ -82,7 +86,7 @@ LINE_ITEMS_USER_PROMPT = """Extract every row of this document's line-items tabl
       "item_type": "GOODS | SERVICE | FREIGHT",
       "uom": "",
       "quantity": "",
-      "unit_price": "the unit price EXACTLY as printed — do not compute, convert, or divide anything yourself",
+      "unit_price": "the unit price's VALUE as printed, in dot-decimal notation (e.g. 14.76, not 14,76 or 1.234,56) — do not compute, convert, or divide the value itself, only transcribe it in dot-decimal form",
       "price_is_tax_inclusive": "true or false — true only if the document itself states or clearly shows this printed price already includes tax",
       "tax_inclusive_rate_percent": "only if price_is_tax_inclusive is true: the tax rate percent baked into that price, as printed or stated elsewhere on the document; else empty",
       "line_total": "",
@@ -96,9 +100,12 @@ LINE_ITEMS_USER_PROMPT = """Extract every row of this document's line-items tabl
 }
 
 Rules: include every line, even a zero-amount line (e.g. a free sample) — do not
-drop it. Extract quantities/prices exactly as printed, do not round, smooth, or
-convert anything — if a price includes tax, report it as printed and flag it with
-price_is_tax_inclusive and tax_inclusive_rate_percent; the net price is worked out
+drop it. Extract quantities/prices exactly as printed (never round, smooth, or
+compute a value that isn't itself printed), but always WRITE every number in
+dot-decimal notation regardless of how it's punctuated on the page — you are
+transcribing the value, not the page's punctuation style, and never add a
+thousands separator of your own. If a price includes tax, report it as printed
+and flag it with price_is_tax_inclusive and tax_inclusive_rate_percent; the net price is worked out
 afterward in code, not by you."""
 
 
