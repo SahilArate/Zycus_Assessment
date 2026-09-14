@@ -72,6 +72,26 @@ def test_extract_payable_merges_both_calls():
     assert len(fake.calls) == 2  # confirms it really made two separate, smaller calls
 
 
+def test_header_freight_insurance_excise_pass_through():
+    fake = FakeVisionClient([{
+        "freight_charges": "25.00",
+        "insurance_charges": "12.50",
+        "excise_duties": "3.00",
+    }])
+    result = extract_header(["page1"], fake)
+    assert result["freight_charges"] == "25.00"
+    assert result["insurance_charges"] == "12.50"
+    assert result["excise_duties"] == "3.00"
+
+
+def test_header_freight_insurance_excise_default_blank():
+    fake = FakeVisionClient([{"invoice_number": "1"}])
+    result = extract_header(["page1"], fake)
+    assert result["freight_charges"] == ""
+    assert result["insurance_charges"] == ""
+    assert result["excise_duties"] == ""
+
+
 def test_notes_field_survives_for_human_review():
     fake = FakeVisionClient([{"notes": "Converted tax-inclusive unit price to net using 7% VAT rate"}])
     result = extract_header(["page1"], fake)

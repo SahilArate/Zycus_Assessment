@@ -81,6 +81,32 @@ def _map_tax(t: dict, master: MasterData, country: str = "") -> dict:
     }
 
 
+def _to_float_or_none(s: str) -> float | None:
+    if not s:
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _net_unit_price(li: dict) -> str:
+    """Returns the NET (tax-exclusive) unit price as a cleaned numeric string.
+    The AI only ever reports the price as printed plus two factual observations
+    (price_is_tax_inclusive, tax_inclusive_rate_percent) — the division itself
+    happens HERE, in plain tested Python, not as invisible AI arithmetic we
+    have no way to check. If either value needed for the conversion is missing
+    or unparseable, the printed price is returned unchanged rather than guessed."""
+    printed = _clean_num(li.get("unit_price", ""))
+    if not li.get("price_is_tax_inclusive"):
+        return printed
+    price = _to_float_or_none(printed)
+    rate = _to_float_or_none(_clean_num(str(li.get("tax_inclusive_rate_percent", "") or "")))
+    if price is None or rate is None or rate <= -100:
+        return printed
+    return _fmt(price / (1 + rate / 100.0))
+
+
 def _map_line(li: dict, master: MasterData, country: str = "") -> dict:
     taxes = li.get("taxes") or []
     return {
@@ -88,7 +114,7 @@ def _map_line(li: dict, master: MasterData, country: str = "") -> dict:
         "item_type": li.get("item_type", "GOODS"),
         "uom": li.get("uom", ""),
         "quantity": _clean_num(li.get("quantity", "")),
-        "unit_price": _clean_num(li.get("unit_price", "")),
+        "unit_price": _net_unit_price(li),
         "total": _clean_num(li.get("line_total", li.get("total", ""))),
         "discount": _clean_num(li.get("discount", "")),
         "discount_percentage": _clean_num(li.get("discount_percentage", "")),

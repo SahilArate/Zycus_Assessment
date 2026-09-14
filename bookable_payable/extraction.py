@@ -54,6 +54,9 @@ HEADER_USER_PROMPT = """Extract this document's HEADER fields (not line items) a
       "base_note": "plain words on what this tax is actually calculated on, only if not the plain net subtotal"
     }
   ],
+  "freight_charges": "freight/shipping/delivery charge amount, only if printed as its own separate amount, else empty",
+  "insurance_charges": "insurance charge amount, only if printed as its own separate amount, else empty",
+  "excise_duties": "excise duty amount, only if printed as its own separate amount, else empty",
   "declared_subtotal": "as printed",
   "declared_total_tax": "as printed",
   "declared_grand_total": "the final amount the document says is owed",
@@ -79,7 +82,9 @@ LINE_ITEMS_USER_PROMPT = """Extract every row of this document's line-items tabl
       "item_type": "GOODS | SERVICE | FREIGHT",
       "uom": "",
       "quantity": "",
-      "unit_price": "the NET (tax-exclusive) unit price — if the printed price is tax-inclusive, divide out the tax rate yourself",
+      "unit_price": "the unit price EXACTLY as printed — do not compute, convert, or divide anything yourself",
+      "price_is_tax_inclusive": "true or false — true only if the document itself states or clearly shows this printed price already includes tax",
+      "tax_inclusive_rate_percent": "only if price_is_tax_inclusive is true: the tax rate percent baked into that price, as printed or stated elsewhere on the document; else empty",
       "line_total": "",
       "discount": "amount discount if shown on this line",
       "discount_percentage": "percentage discount if shown on this line",
@@ -91,7 +96,10 @@ LINE_ITEMS_USER_PROMPT = """Extract every row of this document's line-items tabl
 }
 
 Rules: include every line, even a zero-amount line (e.g. a free sample) — do not
-drop it. Extract quantities/prices exactly as printed, do not round or smooth."""
+drop it. Extract quantities/prices exactly as printed, do not round, smooth, or
+convert anything — if a price includes tax, report it as printed and flag it with
+price_is_tax_inclusive and tax_inclusive_rate_percent; the net price is worked out
+afterward in code, not by you."""
 
 
 def _list(result: dict, key: str) -> list:
@@ -133,6 +141,9 @@ def extract_header(pages_b64png: list[str], client: VisionClient, *, feedback: s
         "po_number": _str(result, "po_number"),
         "header_charges": _list(result, "header_charges"),
         "header_taxes": _list(result, "header_taxes"),
+        "freight_charges": _str(result, "freight_charges"),
+        "insurance_charges": _str(result, "insurance_charges"),
+        "excise_duties": _str(result, "excise_duties"),
         "declared_subtotal": _str(result, "declared_subtotal"),
         "declared_total_tax": _str(result, "declared_total_tax"),
         "declared_grand_total": _str(result, "declared_grand_total"),

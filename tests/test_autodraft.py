@@ -113,6 +113,53 @@ def test_real_groq_output_with_commas_still_matches_oracle():
     assert result["booked_gross"] == 8161.92
 
 
+def test_freight_insurance_excise_pass_through_and_book_correctly():
+    raw = {
+        "doc_type": "invoice",
+        "currency": "USD",
+        "line_items": [{"description": "Widget", "quantity": "1", "unit_price": "100.00", "line_total": "100.00"}],
+        "freight_charges": "10.00",
+        "insurance_charges": "5.00",
+        "excise_duties": "2.00",
+        "declared_grand_total": "117.00",
+    }
+    payable = build_payable(raw, MD)
+    assert payable["freight_charges"] == "10.00"
+    assert payable["insurance_charges"] == "5.00"
+    assert payable["excise_duties"] == "2.00"
+    result = verify_payable(payable)
+    assert result["matches"], result  # proves erp.py actually books these, not just that they're present
+
+
+def test_tax_inclusive_unit_price_is_converted_in_python_not_by_ai():
+    # The AI reports 107.00 exactly as printed, flags it as tax-inclusive at 7% —
+    # it never does the division itself. build_payable() must do that division.
+    raw = {
+        "doc_type": "invoice",
+        "currency": "EUR",
+        "line_items": [{
+            "description": "Widget", "quantity": "1",
+            "unit_price": "107.00", "price_is_tax_inclusive": True, "tax_inclusive_rate_percent": "7",
+            "line_total": "107.00",
+            "taxes": [{"label": "VAT", "rate_percent": "7", "amount": "7.00"}],
+        }],
+        "declared_grand_total": "107.00",
+    }
+    payable = build_payable(raw, MD)
+    assert payable["line_items"][0]["unit_price"] == "100.00"  # 107 / 1.07, done in code
+    result = verify_payable(payable)
+    assert result["matches"], result
+
+
+def test_non_inclusive_unit_price_is_left_untouched():
+    raw = {
+        "doc_type": "invoice", "currency": "USD",
+        "line_items": [{"description": "Widget", "quantity": "1", "unit_price": "50.00", "line_total": "50.00"}],
+    }
+    payable = build_payable(raw, MD)
+    assert payable["line_items"][0]["unit_price"] == "50.00"  # no flag set -> printed value as-is
+
+
 def test_real_groq_output_line_total_is_not_silently_zeroed():
     # the exact failure mode this fix prevents: a comma-formatted line total
     # must not collapse to 0 once it reaches the payable
