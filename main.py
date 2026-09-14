@@ -61,7 +61,7 @@ def main() -> None:
     total_payables = 0
     total_declined = 0
     total_errors = 0
-    total_unresolved = 0  # payables emitted despite not reconciling with erp.py
+    total_unresolved = 0  # candidates DECLINED for failing to reconcile with erp.py (not emitted as payables)
     started_at = time.time()
 
     for i, pdf_path in enumerate(pdf_paths, start=1):

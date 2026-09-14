@@ -1,7 +1,8 @@
-"""Calls the oracle (erp.py) and reports whether our payable reproduces the
-document's own stated total, to the cent. This module never modifies a payable
-to force a match — that decision belongs one layer up, where we still have the
-document image to check evidence against, not just numbers.
+"""Calls erp.py — the deterministic ERP validator — and reports whether our
+payable reproduces the document's own stated total, to the cent. This module
+never modifies a payable to force a match — that decision belongs one layer
+up, where we still have the document image to check evidence against, not
+just numbers.
 """
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from erp import erp_book  # the oracle we must never re-implement or modify
+from erp import erp_book  # the deterministic ERP validator we must never re-implement or modify
 
 _TOLERANCE = 0.005  # half a cent, to absorb float/str round-tripping only
 
