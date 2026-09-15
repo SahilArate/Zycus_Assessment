@@ -91,20 +91,49 @@ def _to_float_or_none(s: str) -> float | None:
 
 
 def _net_unit_price(li: dict) -> str:
-    """Returns the NET (tax-exclusive) unit price as a cleaned numeric string.
-    The AI only ever reports the price as printed plus two factual observations
-    (price_is_tax_inclusive, tax_inclusive_rate_percent) — the division itself
-    happens HERE, in plain tested Python, not as invisible AI arithmetic we
-    have no way to check. If either value needed for the conversion is missing
-    or unparseable, the printed price is returned unchanged rather than guessed."""
+    """Returns the per-single-unit, NET (tax-exclusive) price as a cleaned
+    numeric string. erp.py's own formula is always quantity x unit_price —
+    it has no concept of tax-inclusive pricing or of a "price applies per N
+    units" convention (e.g. SAP-style invoices with a "PU" column: a price
+    of 771.66 per 100 units, not per unit). Both conversions happen HERE, in
+    plain tested Python from printed, grounded facts — never as invisible AI
+    arithmetic we have no way to check. If a value needed for either
+    conversion is missing or unparseable, that conversion is skipped rather
+    than guessed; the printed price is used as-is for that part.
+
+    A DERIVED price (either conversion applied) is kept to 4 decimal places,
+    not 2 — rounding to cents before erp.py multiplies back up by quantity
+    loses real precision (e.g. 771.66/100 = 7.7166; rounding that to 7.72
+    and multiplying by 100 gives 772.00, not the real 771.66). Keeping extra
+    precision on a derived per-unit price is standard real-world practice,
+    not a hack."""
     printed = _clean_num(li.get("unit_price", ""))
-    if not li.get("price_is_tax_inclusive"):
-        return printed
     price = _to_float_or_none(printed)
-    rate = _to_float_or_none(_clean_num(str(li.get("tax_inclusive_rate_percent", "") or "")))
-    if price is None or rate is None or rate <= -100:
+    if price is None:
         return printed
-    return _fmt(price / (1 + rate / 100.0))
+
+    derived = False
+
+    if li.get("price_is_tax_inclusive"):
+        rate = _to_float_or_none(_clean_num(str(li.get("tax_inclusive_rate_percent", "") or "")))
+        if rate is not None and rate > -100:
+            price = price / (1 + rate / 100.0)
+            derived = True
+
+    price_unit = _to_float_or_none(_clean_num(str(li.get("price_unit", "") or "")))
+    if price_unit is not None and price_unit > 1:
+        price = price / price_unit
+        derived = True
+
+    if derived:
+        s = f"{price:.4f}".rstrip("0")
+        if s.endswith("."):
+            s += "00"
+        else:
+            whole, frac = s.split(".")
+            s = f"{whole}.{frac.ljust(2, '0')}"
+        return s
+    return _fmt(price)
 
 
 def _map_line(li: dict, master: MasterData, country: str = "") -> dict:

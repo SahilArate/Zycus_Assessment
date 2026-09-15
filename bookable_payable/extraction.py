@@ -103,7 +103,7 @@ LINE_ITEMS_USER_PROMPT = """Extract every row of this document's line-items tabl
       "item_type": "GOODS | SERVICE | FREIGHT",
       "uom": "",
       "quantity": "",
-      "unit_price": "the unit price's VALUE as printed, in dot-decimal notation (e.g. 14.76, not 14,76 or 1.234,56) — do not compute, convert, or divide the value itself, only transcribe it in dot-decimal form",
+      "price_unit": "if the document has a column labeled something like 'PU', 'Price Unit', or 'per', meaning the printed price applies per that many units (common on SAP-style invoices, e.g. a price of 771.66 'per 100' units, not per single unit) — give that printed number. Otherwise \"1\".",
       "price_is_tax_inclusive": "true or false — true only if the document itself states or clearly shows this printed price already includes tax",
       "tax_inclusive_rate_percent": "only if price_is_tax_inclusive is true: the tax rate percent baked into that price, as printed or stated elsewhere on the document; else empty",
       "line_total": "",

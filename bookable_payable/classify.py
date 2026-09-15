@@ -88,7 +88,16 @@ def classify_batch(
         images_b64_png=images_b64png,
         max_tokens=1000,
     )
-    raw_segments = result.get("segments", [])
+    if isinstance(result, dict):
+        raw_segments = result.get("segments", [])
+    elif isinstance(result, list):
+        # The model sometimes returns a bare JSON array instead of
+        # {"segments": [...]} — treat it as the segments list directly rather
+        # than crashing (result.get() on a list is an AttributeError, a real
+        # bug this fixes, not a hypothetical one).
+        raw_segments = result
+    else:
+        raw_segments = []
     if not isinstance(raw_segments, list):
         raw_segments = []
 
