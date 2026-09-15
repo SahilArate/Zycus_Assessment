@@ -40,7 +40,8 @@ def test_main_writes_one_output_file_per_input_pdf(tmp_path, monkeypatch, capsys
     _make_pdf(docs_dir / "also_not_a_payable.pdf")
 
     fake_client = ScriptedClient([
-        {"doc_type": "delivery_note", "is_payable": False, "payable_count": 0, "reason": "just a delivery note"},
+        {"segments": [{"pages": [1], "is_payable": False, "new_payable": False,
+                       "invoice_number": "", "doc_type": "delivery_note", "reason": "just a delivery note"}]},
     ])
     monkeypatch.setattr(main_module, "get_vision_client", lambda: fake_client)
     monkeypatch.setattr(sys, "argv", ["main.py", "--documents-dir", str(docs_dir), "--output-dir", str(out_dir)])
@@ -65,7 +66,8 @@ def test_main_one_bad_document_does_not_stop_the_run(tmp_path, monkeypatch, caps
     _make_pdf(docs_dir / "fine.pdf")
 
     fake_client = ScriptedClient([
-        {"doc_type": "delivery_note", "is_payable": False, "payable_count": 0, "reason": "fine"},
+        {"segments": [{"pages": [1], "is_payable": False, "new_payable": False,
+                       "invoice_number": "", "doc_type": "delivery_note", "reason": "fine"}]},
     ])
     monkeypatch.setattr(main_module, "get_vision_client", lambda: fake_client)
     monkeypatch.setattr(sys, "argv", ["main.py", "--documents-dir", str(docs_dir), "--output-dir", str(out_dir)])

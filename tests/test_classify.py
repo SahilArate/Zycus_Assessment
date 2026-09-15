@@ -1,67 +1,93 @@
 import sys
 from pathlib import Path
-from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from bookable_payable.classify import classify_document
+from bookable_payable.classify import classify_batch
 from bookable_payable.llm.base import VisionClient
 
 
 class FakeVisionClient(VisionClient):
-    """Stands in for a real AI backend in tests: returns whatever canned answer
-    we hand it, so we can test OUR parsing/validation logic in isolation."""
+    def __init__(self, canned_responses: list[dict]):
+        self.canned_responses = list(canned_responses)
+        self.calls: list[dict] = []
 
-    def __init__(self, canned_response: dict):
-        self.canned_response = canned_response
-        self.last_call_kwargs: dict | None = None
-
-    def extract_json(self, *, system_prompt, user_prompt, images_b64_png, max_tokens=4096):
-        self.last_call_kwargs = {
-            "system_prompt": system_prompt,
-            "user_prompt": user_prompt,
-            "images_b64_png": images_b64_png,
-            "max_tokens": max_tokens,
-        }
-        return self.canned_response
+    def extract_json(self, *, system_prompt, user_prompt, images_b64_png, max_tokens=900):
+        self.calls.append({"user_prompt": user_prompt, "images": images_b64_png})
+        return self.canned_responses.pop(0)
 
 
-def test_normal_invoice_passes_through():
-    fake = FakeVisionClient({"doc_type": "invoice", "is_payable": True, "payable_count": 1, "reason": "It's an invoice"})
-    result = classify_document(["fake_page_1"], fake)
-    assert result == {"doc_type": "invoice", "is_payable": True, "payable_count": 1, "reason": "It's an invoice"}
+def test_single_payable_segment_passes_through():
+    fake = FakeVisionClient([{
+        "segments": [
+            {"pages": [1, 2, 3], "is_payable": True, "new_payable": True,
+             "invoice_number": "INV-1", "doc_type": "invoice", "reason": "clear invoice"},
+        ]
+    }])
+    segments = classify_batch(["p1", "p2", "p3"], [1, 2, 3], fake)
+    assert len(segments) == 1
+    assert segments[0]["pages"] == [1, 2, 3]
+    assert segments[0]["is_payable"] is True
+    assert segments[0]["invoice_number"] == "INV-1"
 
 
-def test_delivery_note_is_not_payable():
-    fake = FakeVisionClient({"doc_type": "delivery_note", "is_payable": False, "payable_count": 0, "reason": "Delivery note, not a bill"})
-    result = classify_document(["fake_page_1"], fake)
-    assert result["is_payable"] is False
-    assert result["payable_count"] == 0
+def test_non_payable_segment():
+    fake = FakeVisionClient([{
+        "segments": [
+            {"pages": [4], "is_payable": False, "new_payable": False,
+             "invoice_number": "", "doc_type": "delivery_note", "reason": "packing slip"},
+        ]
+    }])
+    segments = classify_batch(["p4"], [4], fake)
+    assert segments[0]["is_payable"] is False
+    assert segments[0]["doc_type"] == "delivery_note"
 
 
-def test_contradiction_payable_true_but_count_zero_is_fixed():
-    # the model said payable but forgot to set a count — our code should not
-    # silently produce a payable with 0 lines' worth of intent
-    fake = FakeVisionClient({"doc_type": "invoice", "is_payable": True, "payable_count": 0, "reason": "invoice"})
-    result = classify_document(["fake_page_1"], fake)
-    assert result["payable_count"] == 1
+def test_page_the_model_never_mentions_is_not_silently_dropped():
+    # model only addresses page 5, page 6 goes unmentioned
+    fake = FakeVisionClient([{
+        "segments": [
+            {"pages": [5], "is_payable": True, "new_payable": True,
+             "invoice_number": "X", "doc_type": "invoice", "reason": "invoice start"},
+        ]
+    }])
+    segments = classify_batch(["p5", "p6"], [5, 6], fake)
+    all_pages_covered = sorted(p for seg in segments for p in seg["pages"])
+    assert all_pages_covered == [5, 6]
+    missing_seg = next(s for s in segments if s["pages"] == [6])
+    assert missing_seg["is_payable"] is False  # conservative default, not invented as payable
 
 
-def test_contradiction_not_payable_but_count_positive_is_fixed():
-    fake = FakeVisionClient({"doc_type": "statement", "is_payable": False, "payable_count": 3, "reason": "just a statement"})
-    result = classify_document(["fake_page_1"], fake)
-    assert result["payable_count"] == 0
+def test_page_claimed_twice_is_only_kept_once():
+    # a buggy/hallucinated response claims page 7 in two different segments
+    fake = FakeVisionClient([{
+        "segments": [
+            {"pages": [7], "is_payable": True, "new_payable": True, "invoice_number": "A", "doc_type": "invoice", "reason": "first claim"},
+            {"pages": [7], "is_payable": False, "new_payable": False, "invoice_number": "", "doc_type": "other", "reason": "second claim"},
+        ]
+    }])
+    segments = classify_batch(["p7"], [7], fake)
+    all_pages = [p for seg in segments for p in seg["pages"]]
+    assert all_pages == [7]  # page 7 appears exactly once total, not in both segments
 
 
-def test_missing_fields_do_not_crash():
-    fake = FakeVisionClient({})  # a badly-behaved response
-    result = classify_document(["fake_page_1"], fake)
-    assert result["is_payable"] is False
-    assert result["payable_count"] == 0
-    assert result["doc_type"] == "other"
+def test_multiple_segments_in_one_batch():
+    # a batch can hold the end of one thing and the start of another
+    fake = FakeVisionClient([{
+        "segments": [
+            {"pages": [1], "is_payable": True, "new_payable": False, "invoice_number": "A", "doc_type": "invoice", "reason": "continuation"},
+            {"pages": [2, 3], "is_payable": True, "new_payable": True, "invoice_number": "B", "doc_type": "invoice", "reason": "new invoice starts"},
+        ]
+    }])
+    segments = classify_batch(["p1", "p2", "p3"], [1, 2, 3], fake)
+    assert len(segments) == 2
+    assert segments[0]["invoice_number"] == "A"
+    assert segments[1]["invoice_number"] == "B"
 
 
-def test_pages_are_actually_passed_to_the_client():
-    fake = FakeVisionClient({"doc_type": "invoice", "is_payable": True, "payable_count": 1, "reason": "x"})
-    classify_document(["page_a", "page_b"], fake)
-    assert fake.last_call_kwargs["images_b64_png"] == ["page_a", "page_b"]
+def test_malformed_response_is_treated_as_no_evidence_not_a_crash():
+    fake = FakeVisionClient([{"segments": "not a list"}])
+    segments = classify_batch(["p1"], [1], fake)
+    assert len(segments) == 1
+    assert segments[0]["is_payable"] is False
+    assert segments[0]["pages"] == [1]
