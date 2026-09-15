@@ -6,14 +6,14 @@
 ![erp.py](https://img.shields.io/badge/erp.py-unmodified-lightgrey)
 
 A vision-grounded document intelligence pipeline that turns a folder of
-**unlabeled supplier documents** — invoices, credit memos, delivery notes,
+**unlabeled supplier documents** invoices, credit memos, delivery notes,
 purchase orders, in mixed languages, currencies, and layouts — into
 structured, **ERP-verified** payables, following the contract in
 [`AUTODRAFT_SCHEMA.md`](./AUTODRAFT_SCHEMA.md).
 
 > **The core idea in one sentence:** a vision-language model *reads* every
 > page; it never *decides* whether what it read is correct. That job belongs
-> to `erp.py` — the one component this system is not allowed to touch.
+> to `erp.py` the one component this system is not allowed to touch.
 
 ---
 
@@ -115,7 +115,7 @@ structured, **ERP-verified** payables, following the contract in
 ```
 
 **One JSON file per input PDF, always** — `{"file", "payables", "declined"}`
-— written via idempotent, isolated per-document processing: a hard failure
+ written via idempotent, isolated per-document processing: a hard failure
 on one file is caught, logged honestly, and never allowed to abort the run.
 
 ---
@@ -123,23 +123,23 @@ on one file is caught, logged honestly, and never allowed to abort the run.
 ## Walking one real document through the pipeline
 
 Abstract diagrams are easy to nod along to and hard to trust. Here's what
-actually happened on a real document from this kit, `HLD-01.pdf` — a Thai
+actually happened on a real document from this kit, `HLD-01.pdf` a Thai
 invoice with a 9% "management fee," used because it's the clearest example
 of every stage doing real work, not just passing data through:
 
 | Stage | What happened |
 |---|---|
 | **Classify** | VLM reads the page images → `is_payable: true`, `doc_type: invoice`, `new_payable: true` |
-| **Extract** | VLM reports the printed fields *as printed*: a staff-hire line, a 9% management fee, 7% VAT, a withholding-tax line — **no arithmetic performed by the model** |
-| **Normalize (Python)** | Deterministic code works out that VAT applies to the line total **plus** the management fee (not the line alone) — the "obvious" naive calculation would have been off by a real, non-trivial amount |
+| **Extract** | VLM reports the printed fields *as printed*: a staff-hire line, a 9% management fee, 7% VAT, a withholding-tax line **no arithmetic performed by the model** |
+| **Normalize (Python)** | Deterministic code works out that VAT applies to the line total **plus** the management fee (not the line alone) the "obvious" naive calculation would have been off by a real, non-trivial amount |
 | **Master-data resolution** | Supplier and tax codes resolved by indexed exact-match; no ambiguity in this document |
-| **Representability gate** | Passes — every printed value has a home in the schema |
+| **Representability gate** | Passes every printed value has a home in the schema |
 | **ERP validation** | `erp.py` recomputes the booked gross and compares it to the document's own stated total: **8,161.92 THB, to the cent** — an exact match |
-| **Result** | `payable["extra_charges"]` and the negative withholding-tax line both come through correctly; the whole record reconciles — proven by `test_hld01_builds_and_matches_oracle`, built from this real, hand-verified document, not a synthetic fixture |
+| **Result** | `payable["extra_charges"]` and the negative withholding-tax line both come through correctly; the whole record reconciles proven by `test_hld01_builds_and_matches_oracle`, built from this real, hand-verified document, not a synthetic fixture |
 
 The lesson this document taught the system (and why the normalization layer
 exists at all): **matching the total isn't the same as being right.** Two
-different structures can add up to the same number — the grader checks the
+different structures can add up to the same number the grader checks the
 shape, not just the sum. Full write-up in [`DESIGN.md`](./DESIGN.md).
 
 ---
@@ -148,13 +148,13 @@ shape, not just the sum. Full write-up in [`DESIGN.md`](./DESIGN.md).
 
 | Choice | Why this, not the obvious alternative |
 |---|---|
-| **Vision-language model (Groq / Anthropic), not OCR + text-LLM** | A two-stage OCR → text pipeline throws away layout: which number is on which line, which tax sits under which charge. A VLM reads the page as a human would — spatially — which matters enormously on documents where the tax base depends on which charges sit where on the page. |
-| **Provider-agnostic client interface** (`llm/base.py`) | External vision-model lineups change (this happened twice mid-development). The pipeline code imports one abstract method, never a specific SDK — swapping Groq for Anthropic is a one-line config change, not a rewrite. |
-| **PyMuPDF for rendering, not a PDF-text-extraction library** | Most of this kit's documents are scanned images with no embedded text layer at all (confirmed directly — `pdfplumber.extract_text()` returned empty on the long documents). Rendering to page images is the only approach that works across the whole kit, not just the minority with real text layers. |
-| **RapidFuzz with a confidence *margin*, not a bare threshold** | A threshold alone (`best_score >= 87`) still lets a 91-vs-90 near-tie through confidently. Master-data resolution compares the top **two** candidates and requires a real gap between them — an ambiguous match becomes an honest blank, never a coin-flip guess. |
+| **Vision-language model (Groq / Anthropic), not OCR + text-LLM** | A two-stage OCR → text pipeline throws away layout: which number is on which line, which tax sits under which charge. A VLM reads the page as a human would spatially which matters enormously on documents where the tax base depends on which charges sit where on the page. |
+| **Provider-agnostic client interface** (`llm/base.py`) | External vision-model lineups change (this happened twice mid-development). The pipeline code imports one abstract method, never a specific SDK swapping Groq for Anthropic is a one-line config change, not a rewrite. |
+| **PyMuPDF for rendering, not a PDF-text-extraction library** | Most of this kit's documents are scanned images with no embedded text layer at all (confirmed directly `pdfplumber.extract_text()` returned empty on the long documents). Rendering to page images is the only approach that works across the whole kit, not just the minority with real text layers. |
+| **RapidFuzz with a confidence *margin*, not a bare threshold** | A threshold alone (`best_score >= 87`) still lets a 91-vs-90 near-tie through confidently. Master-data resolution compares the top **two** candidates and requires a real gap between them an ambiguous match becomes an honest blank, never a coin-flip guess. |
 | **A separate classification pass before extraction** | Extracting fields from a delivery note *as if* it were an invoice is a worse failure than declining it. Asking "is this even a payable?" first, as its own step, keeps that mistake structurally impossible. |
 | **Deterministic Python for every calculation, zero AI arithmetic** | Language models are unreliable at exact arithmetic. Every number that reaches `erp.py` was computed by tested, deterministic code from printed facts — the model's only job is *reading*, never *computing*. |
-| **pytest with scripted fake clients, not live-API tests** | 82 tests run in under 3 seconds with **zero API key required**, proving the parsing/validation/retry logic in isolation from model variance — a prerequisite for any CI pipeline, and for verifying this submission without burning API quota. |
+| **pytest with scripted fake clients, not live-API tests** | 82 tests run in under 3 seconds with **zero API key required**, proving the parsing/validation/retry logic in isolation from model variance a prerequisite for any CI pipeline, and for verifying this submission without burning API quota. |
 | **Docker with volume-mounted I/O** | `documents/` and `output/` are mounted, not baked into the image, so the same image runs against any document set without a rebuild. |
 
 ---
@@ -164,11 +164,11 @@ shape, not just the sum. Full write-up in [`DESIGN.md`](./DESIGN.md).
 The obvious approach to this problem is: read the fields, fill the record.
 That approach books maybe a third of real-world documents and then stalls in
 ways that look like a dozen unrelated bugs. The actual problem is not
-reading — it's **knowing which facts to trust, and which ones need a second
+reading it's **knowing which facts to trust, and which ones need a second
 opinion.**
 
 This system is built around one core principle: **the AI perceives, Python
-decides.** A vision-language model is genuinely good at one thing here —
+decides.** A vision-language model is genuinely good at one thing here
 reading a messy, unfamiliar page and telling you what's printed on it. It is
 not reliably good at arithmetic, at knowing when two documents that look
 related actually aren't, or at knowing when to say "I don't know." So the
@@ -176,32 +176,32 @@ system routes each of those needs to whichever side is actually capable of
 it:
 
 - **The AI never does math.** Tax-inclusive pricing, SAP-style
-  "price-per-N-units" columns, locale-formatted numbers — all read as printed
+  "price-per-N-units" columns, locale-formatted numbers all read as printed
   facts, then converted deterministically in tested Python. This isn't
   stylistic. A real bug during development proved why it matters: one
   document's printed price applied "per 100 units," and computing
   `quantity × price` the naive way overstated the line by exactly 100x, on
   every single retry, because the AI kept reading the same real number
-  correctly — the bug was in trusting raw arithmetic on top of an
+  correctly the bug was in trusting raw arithmetic on top of an
   unconverted printed value, not in the AI's perception.
 
-- **The AI never invents a master-data code.** Every resolver — supplier,
-  tax, payment term, purchase order, buyer/business-unit — returns a blank
+- **The AI never invents a master-data code.** Every resolver supplier,
+  tax, payment term, purchase order, buyer/business-unit returns a blank
   code rather than a guess whenever confidence is low. This includes a
   specific case worth naming: two of this tenant's own business units share
   the exact same registered address. Address alone cannot tell them apart.
   Fuzzy name-matching is required to use a **confidence margin**, not just a
-  threshold — the best match must beat the second-best by a real margin, or
+  threshold the best match must beat the second-best by a real margin, or
   the match is discarded as ambiguous. A near-tie is not a match.
 
 - **The AI never decides whether its own answer is correct.** That's what
-  `erp.py` is for — a deterministic reconciliation engine, provided, never
+  `erp.py` is for a deterministic reconciliation engine, provided, never
   modified. Every payable is built, handed to it, and checked against the
   document's own declared total. A mismatch triggers a retry that's told
-  the *size* of the gap, never a suggested fix — this keeps the correction
+  the *size* of the gap, never a suggested fix this keeps the correction
   anchored to real evidence on the page, not reverse-engineered from the
   target number. If retries are exhausted without reconciling, the document
-  is **declined**, with the exact gap and attempt count stated — never
+  is **declined**, with the exact gap and attempt count stated never
   submitted as an unverified figure. An honest "I could not verify this" is
   a correct output for this problem; a confident wrong number is not.
 
@@ -211,7 +211,7 @@ it:
   asks "what does it say?"
 
 - **Cost-aware batching.** Every page of every document is rendered and, for
-  documents up to a page-count threshold, every page is classified — not a
+  documents up to a page-count threshold, every page is classified not a
   fixed 2-3 page sample. Past that threshold, the system falls back to one
   capped, representative sample instead of many full batches. This is a
   deliberate, measured tradeoff: full coverage on a handful of very long
@@ -230,7 +230,7 @@ it:
 ### Prerequisites
 
 - Python 3.11 or newer
-- A vision-capable API key from **Groq** (recommended — fast, generous free
+- A vision-capable API key from **Groq** (recommended fast, generous free
   tier) or **Anthropic**
 - (Optional) Docker, if you'd rather not manage a local Python environment
 
@@ -260,7 +260,7 @@ LLM_PROVIDER=groq
 GROQ_MODEL=your_current_vision_model_id
 ```
 
-The backend is swappable — `LLM_PROVIDER=anthropic` plus
+The backend is swappable `LLM_PROVIDER=anthropic` plus
 `ANTHROPIC_API_KEY=...` works identically, since nothing in the pipeline
 itself knows or cares which provider is active, by design
 (`bookable_payable/llm/base.py`).
