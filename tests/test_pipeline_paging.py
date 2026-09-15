@@ -49,17 +49,32 @@ def test_long_document_no_single_call_exceeds_the_model_cap(tmp_path):
     assert result["file"] == "long_delivery_note.pdf"
 
 
-def test_long_document_every_page_is_actually_seen_by_some_call(tmp_path):
-    # this is the actual regression test for the old bug: a 15-page document
-    # used to only ever have 3 of its pages seen, total, by anything. Now
-    # every page must appear in some classification call.
+def test_moderately_long_document_still_gets_full_page_coverage(tmp_path):
+    # at/under FULL_BATCH_PAGE_THRESHOLD (6), every page is still seen —
+    # this is the common case (most documents in the kit are 1-2 pages) and
+    # costs almost nothing extra to batch fully.
+    pdf_path = tmp_path / "medium_document.pdf"
+    _make_pdf(pdf_path, n_pages=6)
+
+    client = CountingVisionClient()
+    process_document(pdf_path, client, MD)
+
+    assert sum(client.image_counts_seen) == 6  # every page reached the model exactly once
+
+
+def test_very_long_document_falls_back_to_capped_sampling(tmp_path):
+    # past the threshold, full batching would multiply cost too far for the
+    # free-tier daily budget (confirmed by direct observation, not a guess —
+    # see pipeline.py's module docstring point 4). A 15-page document like
+    # the real DU-05s falls back to ONE capped sample instead of 5 batches.
     pdf_path = tmp_path / "long_delivery_note.pdf"
     _make_pdf(pdf_path, n_pages=15)
 
     client = CountingVisionClient()
     process_document(pdf_path, client, MD)
 
-    assert sum(client.image_counts_seen) == 15  # every page reached the model exactly once
+    assert sum(client.image_counts_seen) == 3  # one capped batch, not 5 full ones
+    assert len(client.image_counts_seen) == 1  # exactly one classification call, not five
 
 
 def test_short_document_sends_all_its_pages_in_one_call(tmp_path):

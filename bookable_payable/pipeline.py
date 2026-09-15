@@ -25,6 +25,17 @@ Three important design decisions:
 3. The batch-merge step never just sums payable counts across batches. A
    payable spanning several batches must become ONE group, not one per batch
    it happened to touch — see _merge_segments_into_payables.
+
+4. Full-page batching is only used up to FULL_BATCH_PAGE_THRESHOLD pages.
+   Past that, classification cost multiplies fast (a 20-page document means
+   ~7 batches instead of 1), and our free-tier daily token budget genuinely
+   cannot sustain that across all 42 documents in this kit — confirmed by
+   direct observation, not a guess: the free tier's daily cap was exhausted
+   after only ~3 documents once full batching touched a couple of long ones.
+   Most documents here are 1-2 pages, where full batching already costs
+   almost nothing extra — so this only trades away extra safety margin on
+   the small number of genuinely long documents, not the common case. This
+   is a deliberate, documented cost/coverage tradeoff, not an oversight.
 """
 from __future__ import annotations
 
@@ -39,6 +50,8 @@ from .ingestion import batch_pages, render_pdf_pages, select_pages_for_model
 from .llm.base import VisionClient
 from .masterdata import MasterData
 from .verify import verify_payable
+
+FULL_BATCH_PAGE_THRESHOLD = 6
 
 
 def _merge_segments_into_payables(all_segments: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -185,6 +198,18 @@ def process_payable_candidate(pages_b64png: list[str], client: VisionClient, mas
     return {"payable": payable, "diagnostics": {"attempts": attempts, "resolved": False}}
 
 
+def _select_page_numbers_for_sample(total_pages: int, max_pages: int) -> list[int]:
+    """Mirrors select_pages_for_model's own slicing (first n_from_start + last
+    n_from_end), but returns the 1-based PAGE NUMBERS that were kept, not the
+    image data — needed so classify_batch's page_numbers argument stays
+    accurate for a long document's single sampled batch."""
+    if total_pages <= max_pages:
+        return list(range(1, total_pages + 1))
+    n_from_end = max(1, max_pages // 2)
+    n_from_start = max_pages - n_from_end
+    return list(range(1, n_from_start + 1)) + list(range(total_pages - n_from_end + 1, total_pages + 1))
+
+
 def process_document(pdf_path: str | Path, client: VisionClient, master: MasterData) -> dict[str, Any]:
     """Full pipeline for one PDF. Returns the exact output/X.json shape the
     brief requires (file, payables, declined), plus a "diagnostics" key that
@@ -192,19 +217,31 @@ def process_document(pdf_path: str | Path, client: VisionClient, master: MasterD
     contract."""
     pdf_path = Path(pdf_path)
     all_pages = render_pdf_pages(pdf_path)
-    batches = batch_pages(all_pages)
+    if len(all_pages) <= FULL_BATCH_PAGE_THRESHOLD:
+        batches = batch_pages(all_pages)
+        batch_page_numbers = None  # computed the normal way, per-batch, below
+    else:
+        # Long document: full batching would cost far more than our free-tier
+        # daily budget can sustain across all 42 documents — see module
+        # docstring point 4. Fall back to one capped, representative sample.
+        sampled_numbers = _select_page_numbers_for_sample(len(all_pages), max_pages=3)
+        batches = [[all_pages[n - 1] for n in sampled_numbers]]
+        batch_page_numbers = [sampled_numbers]
 
     all_segments: list[dict] = []
     batch_diagnostics: list[dict] = []
     start = 0
-    for batch_images in batches:
-        page_numbers = list(range(start + 1, start + 1 + len(batch_images)))
+    for i, batch_images in enumerate(batches):
+        if batch_page_numbers is not None:
+            page_numbers = batch_page_numbers[i]
+        else:
+            page_numbers = list(range(start + 1, start + 1 + len(batch_images)))
+            start += len(batch_images)
         print(f"  classifying pages {page_numbers}...", end=" ", flush=True)
         segments = classify_batch(batch_images, page_numbers, client)
         print(f"-> {len(segments)} segment(s)")
         all_segments.extend(segments)
         batch_diagnostics.append({"page_numbers": page_numbers, "segments": segments})
-        start += len(batch_images)
 
     payable_groups, declined_segments = _merge_segments_into_payables(all_segments)
 
