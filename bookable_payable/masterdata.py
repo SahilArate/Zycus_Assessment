@@ -22,20 +22,23 @@ _NAME_FUZZY_MARGIN = 5  # top match must beat the runner-up by this much too —
 # plausible suppliers/buyers.
 
 
-def _confident_fuzzy_key(norm_query: str, candidates: list[str], scorer) -> str | None:
-    """Returns the winning candidate key only if it BOTH clears
-    _NAME_FUZZY_THRESHOLD AND beats the second-best candidate by
-    _NAME_FUZZY_MARGIN. Looks at the top TWO matches (not just the top one) —
-    a high score alone doesn't rule out an equally plausible runner-up."""
+def _confident_fuzzy_key(
+    norm_query: str, candidates: list[str], scorer,
+    threshold: float = _NAME_FUZZY_THRESHOLD, margin: float = _NAME_FUZZY_MARGIN,
+) -> str | None:
+    """Returns the winning candidate key only if it BOTH clears threshold AND
+    beats the second-best candidate by margin. Looks at the top TWO matches
+    (not just the top one) — a high score alone doesn't rule out an equally
+    plausible runner-up."""
     if not candidates:
         return None
     top_two = process.extract(norm_query, candidates, scorer=scorer, limit=2)
     if not top_two:
         return None
     best_key, best_score = top_two[0][0], top_two[0][1]
-    if best_score < _NAME_FUZZY_THRESHOLD:
+    if best_score < threshold:
         return None
-    if len(top_two) > 1 and (best_score - top_two[1][1]) < _NAME_FUZZY_MARGIN:
+    if len(top_two) > 1 and (best_score - top_two[1][1]) < margin:
         return None
     return best_key
 
@@ -168,11 +171,8 @@ class MasterData:
         if hit := self._payment_term_alias.get(norm):
             return hit
         candidates = list(self._payment_term_alias.keys())
-        if candidates:
-            best = process.extractOne(norm, candidates, scorer=fuzz.partial_ratio)
-            if best and best[1] >= 90:
-                return self._payment_term_alias[best[0]]
-        return ""
+        best_key = _confident_fuzzy_key(norm, candidates, fuzz.partial_ratio, threshold=90)
+        return self._payment_term_alias[best_key] if best_key else ""
 
     def resolve_po(self, po_number: str) -> str:
         if not po_number:
