@@ -91,10 +91,6 @@ def classify_batch(
     if isinstance(result, dict):
         raw_segments = result.get("segments", [])
     elif isinstance(result, list):
-        # The model sometimes returns a bare JSON array instead of
-        # {"segments": [...]} — treat it as the segments list directly rather
-        # than crashing (result.get() on a list is an AttributeError, a real
-        # bug this fixes, not a hypothetical one).
         raw_segments = result
     else:
         raw_segments = []
