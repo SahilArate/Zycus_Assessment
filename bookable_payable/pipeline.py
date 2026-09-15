@@ -144,7 +144,14 @@ def process_payable_candidate(pages_b64png: list[str], client: VisionClient, mas
     selected pages. Returns the most recently built payable plus
     diagnostics["resolved"] — the caller (process_document) decides whether an
     unresolved result becomes a declined entry. diagnostics are NOT part of
-    the submitted schema; main.py strips them."""
+    the submitted schema; main.py strips them.
+
+    One short-circuit: if extraction reports header_unrepresentable_amounts
+    (see extraction.py) — a printed reduction/credit that is genuinely not a
+    discount, tax, or charge this schema can hold — we decline immediately
+    rather than retrying or reconciling. Retrying wouldn't help (it's not an
+    extraction mistake to fix) and reconciling would require either lying
+    about the total or inventing a field for something that isn't a discount."""
     feedback = ""
     attempts: list[dict] = []
     payable: dict = {}
@@ -154,6 +161,16 @@ def process_payable_candidate(pages_b64png: list[str], client: VisionClient, mas
         raw = extract_payable_raw(pages_b64png, client, feedback=feedback)
         country = raw.get("supplier_country", "")
         payable = build_payable(raw, master, country=country)
+
+        unrepresentable = raw.get("header_unrepresentable_amounts") or []
+        if unrepresentable:
+            print(f"    -> unrepresentable: {unrepresentable} — declining without attempting ERP reconciliation")
+            attempts.append({"attempt": attempt, "verify_result": None, "model_notes": raw.get("notes", "")})
+            return {
+                "payable": payable,
+                "diagnostics": {"attempts": attempts, "resolved": False, "unrepresentable": unrepresentable},
+            }
+
         result = verify_payable(payable)
         attempts.append({"attempt": attempt, "verify_result": result, "model_notes": raw.get("notes", "")})
         print(f"    -> booked {result['booked_gross']} vs declared {result['declared_gross']} ({'MATCH' if result['matches'] else 'mismatch'})")
@@ -212,17 +229,27 @@ def process_document(pdf_path: str | Path, client: VisionClient, master: MasterD
         if outcome["diagnostics"]["resolved"]:
             payables.append(outcome["payable"])
         else:
-            last_result = outcome["diagnostics"]["attempts"][-1]["verify_result"]
             doc_type = group["doc_type"] or "invoice"
-            declined.append({
-                "doc_type": doc_type,
-                "reason": (
+            unrepresentable = outcome["diagnostics"].get("unrepresentable")
+            if unrepresentable:
+                items = "; ".join(
+                    f"{u.get('label', '')} ({u.get('amount', '')}) — {u.get('reason', '')}"
+                    for u in unrepresentable if isinstance(u, dict)
+                )
+                reason = (
+                    f"Payable document identified (pages {group['pages']}), but it cannot be faithfully "
+                    f"represented using the supplied ERP schema: {items}. Not submitted, to avoid either "
+                    f"fabricating a discount/charge for something that is neither, or misstating the total."
+                )
+            else:
+                last_result = outcome["diagnostics"]["attempts"][-1]["verify_result"]
+                reason = (
                     f"Extracted as a likely {doc_type} (pages {group['pages']}) but could not reconcile "
                     f"with the ERP validator after {len(outcome['diagnostics']['attempts'])} attempt(s) "
                     f"(booked {last_result['booked_gross']} vs declared {last_result['declared_gross']}, "
                     f"diff {last_result['diff']}). Declining rather than submitting an unverified figure."
-                ),
-            })
+                )
+            declined.append({"doc_type": doc_type, "reason": reason})
 
     return {
         "file": pdf_path.name,

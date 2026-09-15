@@ -133,3 +133,32 @@ def test_batch_classification_failure_propagates_not_silently_becomes_not_payabl
         assert False, "expected the batch failure to propagate, not be swallowed"
     except RuntimeError as e:
         assert "batch 2" in str(e)
+
+
+UNREPRESENTABLE_HEADER = {  # the INV-07 case
+    "invoice_number": "INV-07", "currency": "USD", "declared_grand_total": "6620.55",
+    "header_charges": [], "header_taxes": [],
+    "header_unrepresentable_amounts": [
+        {"label": "Less Amount Credited", "amount": "13110.00", "reason": "a prior credit applied, not a discount"},
+    ],
+}
+UNREPRESENTABLE_LINES = {"line_items": [{"description": "Services", "quantity": "1", "unit_price": "19730.55", "line_total": "19730.55"}]}
+
+
+def test_unrepresentable_document_gets_an_explicit_reason_not_a_generic_mismatch_reason(tmp_path):
+    pdf_path = tmp_path / "inv07.pdf"
+    _make_pdf(pdf_path, n_pages=1)
+
+    client = ScriptedClient([
+        _classify_response([{"pages": [1], "is_payable": True, "new_payable": True,
+                              "invoice_number": "INV-07", "doc_type": "invoice", "reason": "invoice"}]),
+        UNREPRESENTABLE_HEADER, UNREPRESENTABLE_LINES,
+    ])
+    result = process_document(pdf_path, client, MD)
+
+    assert result["payables"] == []
+    assert len(result["declined"]) == 1
+    reason = result["declined"][0]["reason"].lower()
+    assert "cannot be faithfully represented" in reason
+    assert "less amount credited" in reason
+    assert "could not reconcile" not in reason  # must not read like an ordinary ERP mismatch

@@ -92,6 +92,24 @@ def test_header_freight_insurance_excise_default_blank():
     assert result["excise_duties"] == ""
 
 
+def test_header_unrepresentable_amounts_pass_through():
+    fake = FakeVisionClient([{
+        "header_unrepresentable_amounts": [
+            {"label": "Less Amount Credited", "amount": "13110.00", "reason": "a prior credit applied, not a discount"},
+        ],
+    }])
+    result = extract_header(["page1"], fake)
+    assert result["header_unrepresentable_amounts"] == [
+        {"label": "Less Amount Credited", "amount": "13110.00", "reason": "a prior credit applied, not a discount"},
+    ]
+
+
+def test_header_unrepresentable_amounts_default_empty():
+    fake = FakeVisionClient([{"invoice_number": "1"}])
+    result = extract_header(["page1"], fake)
+    assert result["header_unrepresentable_amounts"] == []
+
+
 def test_notes_field_survives_for_human_review():
     fake = FakeVisionClient([{"notes": "Converted tax-inclusive unit price to net using 7% VAT rate"}])
     result = extract_header(["page1"], fake)

@@ -82,3 +82,24 @@ def test_first_attempt_success_never_calls_extraction_twice():
     assert outcome["diagnostics"]["resolved"] is True
     assert len(outcome["diagnostics"]["attempts"]) == 1
     assert len(client.calls) == 2  # header + line items, no retry calls made
+
+
+UNREPRESENTABLE_HEADER = {  # the INV-07 case: "Less Amount Credited" has no schema field
+    "invoice_number": "INV-07", "currency": "USD", "declared_grand_total": "6620.55",
+    "header_charges": [], "header_taxes": [],
+    "header_unrepresentable_amounts": [
+        {"label": "Less Amount Credited", "amount": "13110.00", "reason": "a prior credit applied, not a discount"},
+    ],
+}
+UNREPRESENTABLE_LINES = {"line_items": [{"description": "Services", "quantity": "1", "unit_price": "19730.55", "line_total": "19730.55"}]}
+
+
+def test_unrepresentable_amount_declines_immediately_without_retrying_or_reconciling():
+    # only ONE extraction round's worth of responses — if this tried to retry
+    # or call verify_payable, it would run out of canned responses and error
+    client = ScriptedVisionClient([UNREPRESENTABLE_HEADER, UNREPRESENTABLE_LINES])
+    outcome = process_payable_candidate(["page1"], client, MD)
+    assert outcome["diagnostics"]["resolved"] is False
+    assert len(client.calls) == 2  # exactly one extraction round — no retry burned
+    assert outcome["diagnostics"]["attempts"][0]["verify_result"] is None  # never even attempted ERP reconciliation
+    assert outcome["diagnostics"]["unrepresentable"][0]["label"] == "Less Amount Credited"

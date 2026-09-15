@@ -59,7 +59,14 @@ HEADER_USER_PROMPT = """Extract this document's HEADER fields (not line items) a
   "excise_duties": "excise duty amount, only if printed as its own separate amount, else empty",
   "declared_subtotal": "as printed",
   "declared_total_tax": "as printed",
-  "declared_grand_total": "the final amount the document says is owed",
+  "declared_grand_total": "the final amount the document itself says is owed (e.g. an 'AMOUNT DUE' figure, if that's the document's bottom line — not necessarily its pre-adjustment TOTAL)",
+  "header_unrepresentable_amounts": [
+    {
+      "label": "the exact printed label, e.g. 'Less Amount Credited', 'Less Payments Received', 'Applied Credit'",
+      "amount": "the printed amount",
+      "reason": "one short sentence: why this is NOT a pricing discount, NOT a tax, and NOT freight/insurance/excise — e.g. it's a credit or prior payment being applied, not a price reduction"
+    }
+  ],
   "notes": "anything unusual a human reviewer should know — e.g. a tax-inclusive price you'll convert, a discrepancy you noticed, or low confidence in a field"
 }
 
@@ -69,7 +76,17 @@ extract magnitudes as POSITIVE (invoice_type distinguishes it, not sign).
 Every NUMBER you output must be dot-decimal (e.g. 1796.54) regardless of how
 it's punctuated on the page — if the document prints 1.796,54 or 1 796,54,
 you are transcribing its VALUE as 1796.54, not its punctuation style. Never
-add a thousands separator of your own."""
+add a thousands separator of your own.
+
+If the document shows a reduction, credit, prior payment, or adjustment
+applied against the total that is NOT a pricing discount, NOT a tax, and NOT
+one of the charges above — for example a "Less Amount Credited" line reducing
+a printed TOTAL down to a smaller AMOUNT DUE — do not force it into
+discount_amount and do not invent a charge for it; this schema has no field
+for a credit-already-applied. Report it honestly in
+header_unrepresentable_amounts instead. Leave this list empty for ordinary
+discounts, taxes, and charges — it's only for reductions that genuinely have
+no home in this schema."""
 
 
 LINE_ITEMS_SYSTEM_PROMPT = """You are an expert accounts-payable clerk. You already
@@ -154,6 +171,7 @@ def extract_header(pages_b64png: list[str], client: VisionClient, *, feedback: s
         "declared_subtotal": _str(result, "declared_subtotal"),
         "declared_total_tax": _str(result, "declared_total_tax"),
         "declared_grand_total": _str(result, "declared_grand_total"),
+        "header_unrepresentable_amounts": _list(result, "header_unrepresentable_amounts"),
         "notes": _str(result, "notes"),
     }
 
