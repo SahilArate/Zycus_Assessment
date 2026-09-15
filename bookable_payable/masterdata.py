@@ -16,6 +16,28 @@ from pathlib import Path
 from rapidfuzz import fuzz, process
 
 _NAME_FUZZY_THRESHOLD = 87  # conservative: prefer an honest blank over a bad guess
+_NAME_FUZZY_MARGIN = 5  # top match must beat the runner-up by this much too — a
+# 91-vs-90 near-tie is exactly the case where picking the top score alone is
+# risky; an honest blank beats a confident-looking coin flip between two
+# plausible suppliers/buyers.
+
+
+def _confident_fuzzy_key(norm_query: str, candidates: list[str], scorer) -> str | None:
+    """Returns the winning candidate key only if it BOTH clears
+    _NAME_FUZZY_THRESHOLD AND beats the second-best candidate by
+    _NAME_FUZZY_MARGIN. Looks at the top TWO matches (not just the top one) —
+    a high score alone doesn't rule out an equally plausible runner-up."""
+    if not candidates:
+        return None
+    top_two = process.extract(norm_query, candidates, scorer=scorer, limit=2)
+    if not top_two:
+        return None
+    best_key, best_score = top_two[0][0], top_two[0][1]
+    if best_score < _NAME_FUZZY_THRESHOLD:
+        return None
+    if len(top_two) > 1 and (best_score - top_two[1][1]) < _NAME_FUZZY_MARGIN:
+        return None
+    return best_key
 
 
 _STOPWORDS = {"office", "street", "road", "ltd", "building", "avenue", "floor", "city", "the", "and"}
@@ -114,10 +136,9 @@ class MasterData:
             if hit := self._supplier_names_norm.get(norm):
                 return hit["supplier_id"], "name_exact"
             candidates = list(self._supplier_names_norm.keys())
-            if candidates:
-                best = process.extractOne(norm, candidates, scorer=fuzz.WRatio)
-                if best and best[1] >= _NAME_FUZZY_THRESHOLD:
-                    return self._supplier_names_norm[best[0]]["supplier_id"], "name_fuzzy"
+            best_key = _confident_fuzzy_key(norm, candidates, fuzz.WRatio)
+            if best_key:
+                return self._supplier_names_norm[best_key]["supplier_id"], "name_fuzzy"
         return "", ""
 
     def resolve_tax(self, *, country: str = "", tax_type: str = "", rate_percent: str = "") -> str:
@@ -178,11 +199,10 @@ class MasterData:
             if hit := self._bu_names_norm.get(norm):
                 return {k: hit[k] for k in ("company_code", "business_unit_code", "location_code")}
             candidates = list(self._bu_names_norm.keys())
-            if candidates:
-                best = process.extractOne(norm, candidates, scorer=fuzz.WRatio)
-                if best and best[1] >= _NAME_FUZZY_THRESHOLD:
-                    hit = self._bu_names_norm[best[0]]
-                    return {k: hit[k] for k in ("company_code", "business_unit_code", "location_code")}
+            best_key = _confident_fuzzy_key(norm, candidates, fuzz.WRatio)
+            if best_key:
+                hit = self._bu_names_norm[best_key]
+                return {k: hit[k] for k in ("company_code", "business_unit_code", "location_code")}
 
         if buyer_address:
             addr_keywords = _address_keywords(buyer_address)

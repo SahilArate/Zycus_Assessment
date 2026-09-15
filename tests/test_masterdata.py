@@ -3,9 +3,34 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from bookable_payable.masterdata import MasterData
+from bookable_payable.masterdata import MasterData, _confident_fuzzy_key
 
 MD = MasterData.load(Path(__file__).resolve().parents[1] / "master_data")
+
+
+def test_confident_fuzzy_key_rejects_a_near_tie():
+    # best=91, second=90 — a 1-point gap is too close to trust (#8)
+    def scorer(a, b, score_cutoff=0, **kw):
+        return {"supplier_a": 91, "supplier_b": 90}.get(b, 0)
+    assert _confident_fuzzy_key("query", ["supplier_a", "supplier_b"], scorer) is None
+
+
+def test_confident_fuzzy_key_accepts_a_clear_winner():
+    def scorer(a, b, score_cutoff=0, **kw):
+        return {"supplier_a": 95, "supplier_b": 60}.get(b, 0)
+    assert _confident_fuzzy_key("query", ["supplier_a", "supplier_b"], scorer) == "supplier_a"
+
+
+def test_confident_fuzzy_key_rejects_below_threshold_even_with_no_competition():
+    def scorer(a, b, score_cutoff=0, **kw):
+        return {"supplier_a": 80}.get(b, 0)
+    assert _confident_fuzzy_key("query", ["supplier_a"], scorer) is None
+
+
+def test_confident_fuzzy_key_accepts_sole_candidate_above_threshold():
+    def scorer(a, b, score_cutoff=0, **kw):
+        return {"supplier_a": 95}.get(b, 0)
+    assert _confident_fuzzy_key("query", ["supplier_a"], scorer) == "supplier_a"
 
 
 def test_supplier_matches_by_vat_id():
