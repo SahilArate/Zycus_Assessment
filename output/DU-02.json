@@ -3,8 +3,8 @@
   "payables": [],
   "declined": [
     {
-      "doc_type": "unknown",
-      "reason": "processing error, not a determination this isn't a payable: Error code: 400 - {'error': {'message': \"Failed to generate JSON. Please adjust your prompt. See 'failed_generation' for more details.\", 'type': 'invalid_request_error', 'code': 'json_validate_failed', 'failed_generation': 'max completion tokens reached before generating a valid document'}}"
+      "doc_type": "invoice",
+      "reason": "Extracted as a likely invoice (pages [1, 2]) but could not reconcile with the ERP validator after 3 attempt(s) (booked 335.24 vs declared 37534.94, diff -37199.7). Declining rather than submitting an unverified figure."
     }
   ]
 }

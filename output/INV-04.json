@@ -1,0 +1,10 @@
+{
+  "file": "INV-04.pdf",
+  "payables": [],
+  "declined": [
+    {
+      "doc_type": "unknown",
+      "reason": "processing error, not a determination this isn't a payable: Error code: 404 - {'error': {'message': 'The model `qwen/qwen3.6-27b` does not exist or you do not have access to it.', 'type': 'invalid_request_error', 'code': 'model_not_found'}}"
+    }
+  ]
+}
