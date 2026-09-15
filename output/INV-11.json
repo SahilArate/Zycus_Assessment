@@ -1,0 +1,10 @@
+{
+  "file": "INV-11.pdf",
+  "payables": [],
+  "declined": [
+    {
+      "doc_type": "unknown",
+      "reason": "processing error, not a determination this isn't a payable: Error code: 429 - {'error': {'message': 'Rate limit reached for model `qwen/qwen3.8-27b` in organization `org_01m2jbdwrae5jt4cznp48bmzpa` service tier `on_demand` on tokens per day (TPD): Limit 200000, Used 198210, Requested 3486. Please try again in 12m12.672s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "file": "DU-05s.pdf",
+  "payables": [],
+  "declined": [
+    {
+      "doc_type": "delivery_note",
+      "reason": "Page 1 is a delivery note for order 3057199 and does not contain an invoice or request for payment. Page 2 is a delivery note for order 3060775 and does not contain an invoice or request for payment. Page 15 is a carrier shipment receipt for a logistics service, not a supplier invoice."
+    }
+  ]
+}
